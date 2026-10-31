@@ -94,6 +94,7 @@ export class SalesMap {
       if (!this.view || !this.ready) return;
       if (this.view.state.mode === 'heat') this.drawHeat();
       if (this.view.state.mode === 'points') this.drawPoints();
+      if (this.view.state.mode === 'areas') this.paintAreas();
       if (crossed) this.handlers.onLevel(level);
     });
     this.bindPointer();
@@ -300,9 +301,11 @@ export class SalesMap {
     const colored = mode === 'areas';
     this.scale = null;
 
+    // The classes follow what is on screen, or every part of a city lands in the top one.
     const features = this.regionFeatures(level);
+    const onScreen = this.areasOnScreen(level);
     const values = [];
-    for (const [, rec] of stats) values.push(metricValue(rec, metric));
+    for (const [id, rec] of stats) if (onScreen.has(id)) values.push(metricValue(rec, metric));
     const scale = colored ? classes(metric, values, this.theme) : null;
     this.scale = scale;
 
@@ -323,6 +326,24 @@ export class SalesMap {
   regionFeatures(level) {
     const names = level === 'o' ? this.store.meta.municipalities : this.store.meta.cadastral;
     return Object.keys(names).map(Number);
+  }
+
+  viewBox() {
+    const bounds = this.map.getBounds();
+    return [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()];
+  }
+
+  areasOnScreen(level) {
+    const { store } = this;
+    const { list } = this.view;
+    const key = level === 'o' ? store.o : store.k;
+    const [w, s, e, n] = this.viewBox();
+    const seen = new Set();
+    for (let j = 0; j < list.length; j++) {
+      const i = list[j];
+      if (store.lon[i] >= w && store.lon[i] <= e && store.lat[i] >= s && store.lat[i] <= n) seen.add(key[i]);
+    }
+    return seen;
   }
 
   markSelected() {
@@ -357,7 +378,7 @@ export class SalesMap {
   areaLegend(metric, scale) {
     const info = METRICS[metric];
     if (!scale) return { title: info.title, empty: true };
-    return { title: info.title, bins: scale.swatches, labels: scale.thresholds.map(info.format), note: 'Manj kot 5 poslov: brez barve' };
+    return { title: info.title, bins: scale.swatches, labels: scale.thresholds.map(info.format), note: 'Barve veljajo za prikazani izsek. Manj kot 5 poslov: brez barve.' };
   }
 
   valueOf(metric, i) {
@@ -483,8 +504,7 @@ export class SalesMap {
     const { state, list } = this.view;
     const { store, map } = this;
     const metric = METRICS[state.metric].heat && state.metric !== 'count' ? state.metric : 'em';
-    const bounds = map.getBounds();
-    const [w, s, e, n] = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()];
+    const [w, s, e, n] = this.viewBox();
 
     // Sales in one building share a coordinate, so one dot stands for all of them.
     const grouped = new Map();
