@@ -1,0 +1,17 @@
+name: probe-eprostor
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Metadata
+        run: |
+          curl -sS -m 40 -w "\nHTTP %{http_code} %{time_total}s\n" "https://ipi.eprostor.gov.si/jgp-service-api/display-views/groups/127/composite-products/321/result?filterParam=DRZAVA&filterValue=1&filterYear=2026"
+      - name: Download
+        run: |
+          U=$(curl -sS -m 40 "https://ipi.eprostor.gov.si/jgp-service-api/display-views/groups/127/composite-products/321/file?filterParam=DRZAVA&filterValue=1&filterYear=2026" | python3 -c "import json,sys;print(json.load(sys.stdin)['url'])")
+          curl -sS -L -m 120 "$U" -o k.zip -w "HTTP %{http_code} %{size_download}B %{time_total}s\n"
+          unzip -l k.zip

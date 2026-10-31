@@ -1,0 +1,7 @@
+.probe/
+data/raw/
+__pycache__/
+*.pyc
+node_modules/
+.venv/
+.DS_Store
