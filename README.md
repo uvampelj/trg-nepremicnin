@@ -15,11 +15,12 @@ Stran je neodvisen prikaz odprtih podatkov in ni uradna storitev GURS. Ni cenite
 
 ## Kako se osvežuje
 
-GURS izvoze objavi enkrat tedensko. GitHub Action [`refresh.yml`](.github/workflows/refresh.yml) vsak dan ob 6.20 UTC:
+GURS izvoze objavi enkrat tedensko. Osveževanje je razdeljeno na dva posla:
 
-1. primerja objavljene datoteke s [`status/latest.json`](status/latest.json),
-2. če ni novih, se konča,
-3. če so nove, prenese izvoze (približno 1,1 GB), zgradi podatke, zapiše novo stanje v repozitorij in objavi stran.
+- [`refresh.yml`](.github/workflows/refresh.yml) vsak dan ob 6.20 UTC primerja objavljene izvoze s [`status/latest.json`](status/latest.json). Če ni novih podatkov, se konča. Če so, prenese posle ETN, zgradi podatke, zapiše novo stanje v repozitorij in objavi stran.
+- [`valuation.yml`](.github/workflows/valuation.yml) vsak ponedeljek ob 3.40 UTC prenese evidenco vrednotenja po občinah (212 datotek, skupaj približno 1 GB), jo skrči v tabelo vrednosti in jo objavi kot izdajo [`valuation`](https://github.com/uvampelj/trg-nepremicnin/releases/tag/valuation).
+
+Posli se osvežujejo neodvisno od vrednosti: če prenos vrednosti spodleti, stran še naprej uporablja zadnjo uspešno tabelo.
 
 Če GURS spremeni strukturo datotek ali število poslov nenadoma pade za več kot 5 %, se gradnja ustavi, prejšnja različica strani pa ostane objavljena. GitHub o neuspešnem zagonu pošlje e-pošto.
 
@@ -29,6 +30,7 @@ Ročni zagon: **Actions → Osveži podatke → Run workflow**.
 
 ```bash
 pip install -r pipeline/requirements.txt
+gh release download valuation --dir data/valuation
 python -m pipeline.download
 python -m pipeline.build
 python -m http.server 8791 --directory web
@@ -42,7 +44,8 @@ Meje območij v `web/geo` so v repozitoriju in se redko spreminjajo. Obnovite ji
 |---|---|
 | `pipeline/sources.py` | dostop do javnega API-ja JGP |
 | `pipeline/check.py` | preveri, ali so na voljo novi podatki |
-| `pipeline/download.py` | prenos izvozov v `data/raw` |
+| `pipeline/download.py` | prenos poslov ETN v `data/raw` |
+| `pipeline/valuation.py` | tabela vrednosti iz občinskih izvozov evidence vrednotenja |
 | `pipeline/build.py` | razvrstitev poslov, povezava z evidenco vrednotenja, izhod v `web/data` |
 | `web/` | statična stran (MapLibre, brez gradnje) |
 

@@ -12,7 +12,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from pipeline.sources import download
+from pipeline.sources import fetch
 
 SPATIAL_UNITS = (119, 12)   # Prostorske enote
 CADASTRAL = (123, 4)        # Katastrske občine
@@ -38,8 +38,8 @@ def mapshaper(source: Path, *steps: str) -> None:
 def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        download(SPATIAL_UNITS, root / "rpe.zip")
-        download(CADASTRAL, root / "ko.zip")
+        (root / "rpe.zip").write_bytes(fetch(SPATIAL_UNITS))
+        (root / "ko.zip").write_bytes(fetch(CADASTRAL))
         municipalities = extract(root / "rpe.zip", "obcine", root / "ob")
         cadastral = extract(root / "ko.zip", "katastrske_obcine", root / "kat")
 

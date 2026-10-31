@@ -8,17 +8,19 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import date
-from pathlib import Path
 
-API = "https://ipi.eprostor.gov.si/jgp-service-api/display-views/groups"
+ROOT = "https://ipi.eprostor.gov.si/jgp-service-api"
+API = f"{ROOT}/display-views/groups"
 FIRST_YEAR = 2020
 
 # (display group, composite product) as listed by /display-views/groups/{id}/composite-products
 SALES = (127, 321)       # Kupoprodajni posli za območje Slovenije po letih
-VALUATION = (361, 361)   # Evidenca vrednotenja za območje Slovenije
+VALUATION = (363, 362)   # Evidenca vrednotenja za območje občine
+
+COUNTRY = ("DRZAVA", 1)
 
 
-def _get_json(url: str, tries: int = 4) -> dict:
+def _get_json(url: str, tries: int = 4) -> dict | list:
     for attempt in range(tries):
         try:
             with urllib.request.urlopen(url, timeout=60) as resp:
@@ -30,18 +32,18 @@ def _get_json(url: str, tries: int = 4) -> dict:
     raise AssertionError
 
 
-def _url(product: tuple[int, int], endpoint: str, year: int | None) -> str:
-    query = {"filterParam": "DRZAVA", "filterValue": 1}
+def _url(product: tuple[int, int], endpoint: str, where: tuple[str, int | str], year: int | None) -> str:
+    query = {"filterParam": where[0], "filterValue": where[1]}
     if year is not None:
         query["filterYear"] = year
     return f"{API}/{product[0]}/composite-products/{product[1]}/{endpoint}?{urllib.parse.urlencode(query)}"
 
 
-def file_info(product: tuple[int, int], year: int | None = None) -> dict:
+def file_info(product: tuple[int, int], year: int | None = None, where: tuple[str, int | str] = COUNTRY) -> dict:
     """Name and size of the currently published file, without downloading it."""
-    meta = _get_json(_url(product, "result", year))
+    meta = _get_json(_url(product, "result", where, year))
     if meta.get("statusText") != "OK":
-        raise RuntimeError(f"GURS result status for {product}/{year}: {meta.get('statusText')}")
+        raise RuntimeError(f"GURS result status for {product}/{where}/{year}: {meta.get('statusText')}")
     name = meta["file"]["name"]
     stamp = re.search(r"(\d{8})\.zip$", name)
     if not stamp:
@@ -49,21 +51,28 @@ def file_info(product: tuple[int, int], year: int | None = None) -> dict:
     return {"name": name, "size": meta["fileSize"], "date": stamp.group(1)}
 
 
-def download(product: tuple[int, int], dest: Path, year: int | None = None, tries: int = 4) -> None:
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_suffix(".part")
+def fetch(product: tuple[int, int], year: int | None = None, where: tuple[str, int | str] = COUNTRY,
+          tries: int = 5) -> bytes:
+    """Download a published file. The link is single-use, so every attempt asks for a new one."""
     for attempt in range(tries):
         try:
-            link = _get_json(_url(product, "file", year))["url"]
-            with urllib.request.urlopen(link, timeout=600) as resp, tmp.open("wb") as out:
-                while chunk := resp.read(1 << 20):
-                    out.write(chunk)
-            tmp.replace(dest)
-            return
+            expected = file_info(product, year, where)["size"]
+            link = _get_json(_url(product, "file", where, year))["url"]
+            with urllib.request.urlopen(link, timeout=300) as resp:
+                data = resp.read()
+            # A cut connection can end a stream early without raising anything.
+            if len(data) != expected:
+                raise OSError(f"short download: {len(data)} of {expected} bytes")
+            return data
         except OSError:
             if attempt == tries - 1:
                 raise
-            time.sleep(30 * (attempt + 1))
+            time.sleep(20 * (attempt + 1))
+    raise AssertionError
+
+
+def municipalities() -> list[str]:
+    return [m["sifra"] for m in _get_json(f"{ROOT}/municipalities")]
 
 
 def sales_years() -> list[int]:
@@ -80,7 +89,5 @@ def sales_years() -> list[int]:
 
 
 def remote_versions() -> dict:
-    """Fingerprint of everything the site is built from."""
-    versions = {str(y): file_info(SALES, y) for y in sales_years()}
-    versions["valuation"] = file_info(VALUATION)
-    return versions
+    """Fingerprint of the sales exports the site is built from."""
+    return {str(year): file_info(SALES, year) for year in sales_years()}

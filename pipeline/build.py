@@ -18,13 +18,12 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pyarrow as pa
-import pyarrow.csv as pacsv
 from pyproj import Transformer
 
 from pipeline.sources import FIRST_YEAR
 
 RAW = Path("data/raw")
+VALUATION = Path("data/valuation")
 OUT = Path("web/data")
 GEO = Path("web/geo")
 STATUS = Path("status/latest.json")
@@ -110,56 +109,25 @@ def number(text: pd.Series) -> pd.Series:
     return pd.to_numeric(text.str.replace(",", ".", regex=False), errors="coerce")
 
 
-def read_csv_columns(z: zipfile.ZipFile, part: str, columns: dict[str, pa.DataType]) -> pd.DataFrame:
-    name = next(n for n in z.namelist() if f"VREDNOTENJA_{part}_2" in n)
-    with z.open(name) as f:
-        table = pacsv.read_csv(
-            f,
-            read_options=pacsv.ReadOptions(block_size=1 << 25),
-            convert_options=pacsv.ConvertOptions(include_columns=list(columns), column_types=columns),
-        )
-    return table.to_pandas()
-
-
-def read_valuation(parts: pd.DataFrame, land: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, str, dict]:
-    """Current generalised value of every sold building part and parcel, plus building attributes."""
-    with zipfile.ZipFile(RAW / "ev.zip") as z:
-        stamp = re.search(r"(\d{8})\.csv$", z.namelist()[0]).group(1)
-        buildings = read_csv_columns(z, "stavba", {
-            "EID_STAVBA": pa.int64(), "KO_SIFKO": pa.int32(), "STEV_ST": pa.int64(),
-            "ID_KONSTRUKCIJA": pa.int32(), "ID_TIP_STAVBE": pa.int32(),
-        })
-        keys = parts[["ko", "building"]].drop_duplicates()
-        buildings = buildings.merge(keys, left_on=["KO_SIFKO", "STEV_ST"], right_on=["ko", "building"])
-
-        units = read_csv_columns(z, "del_stavbe", {
-            "EID_DEL_STAVBE": pa.int64(), "EID_STAVBA": pa.int64(), "STEV_DST": pa.int64(),
-        })
-        units = units.merge(buildings, on="EID_STAVBA")
-        values = read_csv_columns(z, "del_stavbe_enota", {"EID_DEL_STAVBE": pa.int64(), "POSPLOSENA_VREDNOST": pa.float64()})
-        units = units.merge(values, on="EID_DEL_STAVBE", how="left")
-        units = units[["ko", "building", "STEV_DST", "POSPLOSENA_VREDNOST", "ID_KONSTRUKCIJA", "ID_TIP_STAVBE"]]
-        units.columns = ["ko", "building", "unit", "gv", "construction", "building_type"]
-
-        parcels = read_csv_columns(z, "parcela", {"EID_PARCELA": pa.int64(), "KO_SIFKO": pa.int32(), "PARCELA": pa.string()})
-        parcels["parcel"] = parcels.PARCELA.str.replace("*", "", regex=False).str.strip()
-        parcels = parcels.merge(land[["ko", "parcel"]].drop_duplicates(), left_on=["KO_SIFKO", "parcel"], right_on=["ko", "parcel"])
-        enote = read_csv_columns(z, "parc_enota", {"EID_PARCELA": pa.int64(), "POSPLOSENA_VREDNOST": pa.float64()})
-        enote = enote.groupby("EID_PARCELA", as_index=False).POSPLOSENA_VREDNOST.sum()
-        parcels = parcels.merge(enote, on="EID_PARCELA", how="left")
-        parcels = parcels[["ko", "parcel", "POSPLOSENA_VREDNOST"]].rename(columns={"POSPLOSENA_VREDNOST": "gv"})
-        parcels = parcels.drop_duplicates(["ko", "parcel"])
-
-        names = {}
-        for part, key in (("SIF_KONSTRUKCIJA", "ID_KONSTRUKCIJA"), ("SIF_TIP_STAVBE", "ID_TIP_STAVBE")):
-            n = next(x for x in z.namelist() if part in x)
-            codes = pd.read_csv(io.BytesIO(z.read(n)), encoding="utf-8-sig", dtype=str, keep_default_na=False)
-            names[part] = dict(zip(codes[key].astype(int), codes["NAZIV"]))
-    return units, parcels, stamp, names
+def read_valuation(parts: pd.DataFrame, land: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    """The prebuilt lookup, narrowed to the buildings and parcels that were sold."""
+    info = json.loads((VALUATION / "valuation.json").read_text(encoding="utf8"))
+    units = pd.read_parquet(VALUATION / "units.parquet")
+    units = units.merge(parts[["ko", "building"]].drop_duplicates(), on=["ko", "building"])
+    parcels = pd.read_parquet(VALUATION / "parcels.parquet")
+    parcels = parcels.merge(land[["ko", "parcel"]].drop_duplicates(), on=["ko", "parcel"])
+    return units, parcels, info
 
 
 def plain(text: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFD", text.upper()) if not unicodedata.combining(c))
+
+
+def readable(name: str) -> str:
+    """Cadastral names come in capitals: 'SVETI JURIJ PRI GROBELNEM' -> 'Sveti Jurij pri Grobelnem'."""
+    small = {"pri", "na", "v", "ob", "nad", "pod", "in", "pred", "za", "do", "k", "s", "z"}
+    words = name.lower().split()
+    return " ".join(w if i and w in small else "-".join(p.capitalize() for p in w.split("-")) for i, w in enumerate(words))
 
 
 def region_lookup() -> tuple[dict[int, str], dict[int, str], dict[str, int]]:
@@ -167,7 +135,8 @@ def region_lookup() -> tuple[dict[int, str], dict[int, str], dict[str, int]]:
         features = json.loads((GEO / name).read_text(encoding="utf8"))["features"]
         return {f["properties"]["id"]: f["properties"]["name"] for f in features}
 
-    municipalities, cadastral = load("obcine.geojson"), load("ko.geojson")
+    municipalities = load("obcine.geojson")
+    cadastral = {code: readable(name) for code, name in load("ko.geojson").items()}
     by_name = {plain(name): code for code, name in municipalities.items()}
     # ETN uses the short names; RPE adds the bilingual form.
     for code, name in municipalities.items():
@@ -295,7 +264,7 @@ def main() -> None:
     land = land[land.deal.isin(deals.deal)]
     land["area"] = land.parcel_area.fillna(0) * land.share
 
-    units, parcels, valuation_stamp, code_names = read_valuation(parts, land)
+    units, parcels, valuation = read_valuation(parts, land)
     parts = parts.merge(units[["ko", "building", "unit", "construction", "building_type"]], on=["ko", "building", "unit"], how="left")
 
     sales = classify(deals, parts, land)
@@ -334,7 +303,7 @@ def main() -> None:
     built = sales.built.where(sales.built.between(1500, date.today().year + 3)).fillna(0).astype(int)
 
     sales = sales.assign(bits=bits, built=built).sort_values(["group", "muni", "date"])
-    write_outputs(sales, municipalities, cadastral, code_names, valuation_stamp, total_rows)
+    write_outputs(sales, municipalities, cadastral, valuation, total_rows)
 
 
 def rounded(values: pd.Series, digits: int = 0) -> list:
@@ -343,7 +312,7 @@ def rounded(values: pd.Series, digits: int = 0) -> list:
     return out.astype(int).tolist() if digits == 0 else [int(v) if v == int(v) else v for v in out.tolist()]
 
 
-def write_outputs(sales, municipalities, cadastral, code_names, valuation_stamp, total_rows) -> None:
+def write_outputs(sales, municipalities, cadastral, valuation, total_rows) -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     month = (sales.date.dt.year - FIRST_YEAR) * 12 + sales.date.dt.month - 1
 
@@ -387,9 +356,7 @@ def write_outputs(sales, municipalities, cadastral, code_names, valuation_stamp,
             stamp = re.search(r"(\d{8})\.csv$", z.namelist()[0]).group(1)
         name = f"ETN_SLO_{year}_KPP_{stamp}.zip"
         sources[str(year)] = json.loads(marker.read_text()) if marker.exists() else {"name": name, "date": stamp}
-    ev_marker = RAW / "ev.json"
-    sources["valuation"] = (json.loads(ev_marker.read_text()) if ev_marker.exists()
-                            else {"name": f"EV_SLO_EVIDENCA_VREDNOTENJA_{valuation_stamp}.zip", "date": valuation_stamp})
+    sources["valuation"] = {"name": valuation["name"], "date": valuation["date"]}
 
     last_month = int(month.max())
     summary = {
@@ -407,8 +374,8 @@ def write_outputs(sales, municipalities, cadastral, code_names, valuation_stamp,
     meta["types"] = {str(k): v for k, v in TYPE_LABELS.items()}
     meta["municipalities"] = {str(k): v for k, v in municipalities.items()}
     meta["cadastral"] = {str(k): v for k, v in cadastral.items()}
-    meta["construction"] = {str(k): v for k, v in code_names["SIF_KONSTRUKCIJA"].items()}
-    meta["buildingTypes"] = {str(k): v for k, v in code_names["SIF_TIP_STAVBE"].items()}
+    meta["construction"] = valuation["names"]["construction"]
+    meta["buildingTypes"] = valuation["names"]["buildingTypes"]
     (OUT / "meta.json").write_text(json.dumps(meta, separators=(",", ":"), ensure_ascii=False), encoding="utf8")
 
     previous = json.loads(STATUS.read_text(encoding="utf8")) if STATUS.exists() else None

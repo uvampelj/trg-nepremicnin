@@ -599,6 +599,7 @@ async function start() {
   });
   render();
   $('loading').hidden = true;
+  if (state.area) map.focusArea(state.area);
 
   let resizeQueued = false;
   new ResizeObserver(() => {

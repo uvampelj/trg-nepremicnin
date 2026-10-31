@@ -33,10 +33,16 @@ export const PERIODS = [
   { id: 6, label: 'po 2010', lo: 2011, hi: 9999 },
 ];
 
-async function json(url) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
-  return response.json();
+async function json(url, retries = 2) {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
+    return await response.json();
+  } catch (error) {
+    if (!retries) throw error;
+    await new Promise((resolve) => { setTimeout(resolve, 800); });
+    return json(url, retries - 1);
+  }
 }
 
 function mercator(lon, lat) {

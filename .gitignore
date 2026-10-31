@@ -1,6 +1,7 @@
 .claude/
 .probe/
 data/raw/
+data/valuation/
 web/data/
 __pycache__/
 *.pyc

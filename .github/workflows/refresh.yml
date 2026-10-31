@@ -43,7 +43,12 @@ jobs:
 
       - run: pip install -r pipeline/requirements.txt
 
-      - name: Preveri, ali je GURS objavil novo različico
+      - name: Prevzemi tabelo vrednosti GURS
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download valuation --dir data/valuation --clobber
+
+      - name: Preveri, ali so podatki novi
         id: check
         run: python -m pipeline.check
 
@@ -61,15 +66,7 @@ jobs:
             echo "GURS nima novih podatkov." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Obnovi izvorne datoteke
-        if: steps.run.outputs.needed == 'true'
-        uses: actions/cache@v4
-        with:
-          path: data/raw
-          key: raw-${{ hashFiles('status/latest.json') }}-${{ github.run_id }}
-          restore-keys: raw-
-
-      - name: Prenesi podatke GURS
+      - name: Prenesi posle ETN
         if: steps.run.outputs.needed == 'true'
         run: python -m pipeline.download
 
