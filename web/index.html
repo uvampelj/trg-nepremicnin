@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="sl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Kataster cen</title>
+  <meta name="description" content="Interaktivni zemljevid prodanih stanovanj, hiš in zemljišč v Sloveniji od leta 2020: cene na m², rast, promet in razmerje do posplošene vrednosti GURS.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23191814'/%3E%3Ccircle cx='16' cy='16' r='8' fill='none' stroke='%23f0743f' stroke-width='2.5'/%3E%3Cpath d='M16 3v9M16 20v9M3 16h9M20 16h9' stroke='%23f4f1e8' stroke-width='2.5'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
+  <link href="css/app.css" rel="stylesheet">
+  <script>
+    (() => {
+      try {
+        const saved = localStorage.getItem('theme');
+        if (saved) document.documentElement.dataset.theme = saved;
+      } catch { /* storage may be blocked */ }
+    })();
+  </script>
+</head>
+<body data-tab="map">
+  <div class="app">
+    <header class="top">
+      <a class="brand" href="./" aria-label="Kataster cen, začetek">
+        <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><circle cx="16" cy="16" r="8.5" fill="none" stroke="var(--accent)" stroke-width="2.4"/><path d="M16 2v10M16 20v10M2 16h10M20 16h10" stroke="currentColor" stroke-width="2.4"/></svg>
+        <span>Kataster cen</span>
+      </a>
+      <p class="tagline">Prodane nepremičnine v Sloveniji od leta 2020</p>
+      <p class="stamp" id="stamp"></p>
+      <div class="top-actions">
+        <button class="ghost" id="open-method" type="button">Metodologija</button>
+        <button class="ghost icon" id="toggle-theme" type="button" aria-label="Preklopi svetlo ali temno temo">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="main">
+      <aside class="filters" aria-label="Filtri">
+        <div class="filters-head">
+          <h2>Filtri</h2>
+          <button class="link" id="reset" type="button">Ponastavi</button>
+        </div>
+
+        <section class="group">
+          <h3>Nepremičnina</h3>
+          <div class="chips" id="f-types"></div>
+        </section>
+
+        <section class="group">
+          <h3>Leto pogodbe <output id="year-label"></output></h3>
+          <div class="range" id="year-range">
+            <div class="range-fill"></div>
+            <input type="range" id="y0" aria-label="Od leta" step="1">
+            <input type="range" id="y1" aria-label="Do leta" step="1">
+          </div>
+          <div class="range-marks" id="year-marks"></div>
+          <button class="play" id="play" type="button" aria-pressed="false">
+            <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2 1l9 5-9 5z" fill="currentColor"/></svg>
+            <span>Predvajaj po letih</span>
+          </button>
+        </section>
+
+        <section class="group">
+          <h3><label for="f-area">Območje</label></h3>
+          <div class="search">
+            <input id="f-area" list="area-list" placeholder="Občina ali k. o." autocomplete="off">
+            <datalist id="area-list"></datalist>
+          </div>
+          <button class="chip is-on area-chip" id="area-chip" type="button" hidden></button>
+        </section>
+
+        <section class="group">
+          <h3>Vrsta posla</h3>
+          <div class="checks" id="f-kinds"></div>
+        </section>
+
+        <section class="group">
+          <h3>Tržnost posla</h3>
+          <div class="checks" id="f-markets"></div>
+        </section>
+
+        <section class="group">
+          <h3>Gradnja</h3>
+          <div class="segment" id="f-build" role="group" aria-label="Novogradnja ali rabljeno">
+            <button type="button" data-v="all">Vse</button>
+            <button type="button" data-v="new">Novogradnje</button>
+            <button type="button" data-v="used">Rabljeno</button>
+          </div>
+          <h4>Obdobje gradnje</h4>
+          <div class="chips small" id="f-periods"></div>
+          <h4>Konstrukcija</h4>
+          <div class="chips small" id="f-constructions"></div>
+          <h4>Tip stavbe</h4>
+          <div class="chips small" id="f-building-types"></div>
+        </section>
+
+        <section class="group">
+          <h3>Velikost in cena</h3>
+          <div class="pair">
+            <label>Površina od <input type="number" min="0" inputmode="numeric" id="min-area" placeholder="m²"></label>
+            <label>do <input type="number" min="0" inputmode="numeric" id="max-area" placeholder="m²"></label>
+            <label>Cena od <input type="number" min="0" inputmode="numeric" id="min-price" placeholder="€"></label>
+            <label>do <input type="number" min="0" inputmode="numeric" id="max-price" placeholder="€"></label>
+          </div>
+        </section>
+
+        <section class="group">
+          <h3>Posebni primeri</h3>
+          <label class="check"><input type="checkbox" id="include-part"><span>Prodaja deleža</span></label>
+          <label class="check"><input type="checkbox" id="include-bundle"><span>Paketi in mešana zemljišča</span></label>
+        </section>
+      </aside>
+
+      <section class="stage" aria-label="Zemljevid">
+        <div id="map"></div>
+        <div class="map-bar">
+          <div class="segment on-map" id="f-mode" role="group" aria-label="Prikaz na zemljevidu">
+            <button type="button" data-v="heat">Toplotna karta</button>
+            <button type="button" data-v="areas">Območja</button>
+            <button type="button" data-v="points">Posli</button>
+          </div>
+          <div class="segment on-map" id="f-metric" role="group" aria-label="Kazalnik"></div>
+          <div class="segment on-map" id="f-level" role="group" aria-label="Raven območij">
+            <button type="button" data-v="o">Občine</button>
+            <button type="button" data-v="k">Katastrske občine</button>
+          </div>
+          <p class="map-hint" id="map-hint" hidden></p>
+        </div>
+        <div class="map-legend" id="legend"></div>
+        <div class="loading" id="loading"><span>Nalagam posle</span></div>
+      </section>
+
+      <aside class="rail" aria-label="Analiza">
+        <div class="rail-head">
+          <div>
+            <p class="eyebrow">Izbor</p>
+            <h2 id="scope"></h2>
+          </div>
+          <button class="ghost" id="download" type="button">Prenesi CSV</button>
+        </div>
+
+        <div class="kpis" id="kpis"></div>
+
+        <article class="card" id="card-trend">
+          <header><h3>Cena na m² po četrtletjih</h3><button class="link view" type="button">Tabela</button></header>
+          <p class="sub">Mediana izbranih tipov. Bledi konec črte: posli še prihajajo v evidenco.</p>
+          <div class="plot" id="c-trend"></div>
+          <div class="tabular" hidden></div>
+        </article>
+
+        <article class="card" id="card-index">
+          <header><h3>Rast po tipih</h3><button class="link view" type="button">Tabela</button></header>
+          <p class="sub" id="index-sub"></p>
+          <div class="plot" id="c-index"></div>
+          <div class="tabular" hidden></div>
+        </article>
+
+        <article class="card" id="card-yoy">
+          <header><h3>Medletna rast cene na m²</h3></header>
+          <p class="sub">Sprememba mediane glede na prejšnje leto.</p>
+          <div class="scroll-x" id="c-yoy"></div>
+        </article>
+
+        <article class="card" id="card-deals">
+          <header>
+            <h3>Posli po tipih</h3>
+            <div class="mini-segment" id="stack-by" role="group" aria-label="Enota">
+              <button type="button" data-v="n">Število</button>
+              <button type="button" data-v="value">Vrednost</button>
+            </div>
+            <button class="link view" type="button">Tabela</button>
+          </header>
+          <div class="plot" id="c-deals"></div>
+          <div class="tabular" hidden></div>
+        </article>
+
+        <article class="card" id="card-ratio">
+          <header><h3>Pogodbena cena proti vrednosti GURS</h3><button class="link view" type="button">Tabela</button></header>
+          <p class="sub">Razmerje nad 1: posel je bil sklenjen nad današnjo posplošeno vrednostjo.</p>
+          <div class="plot" id="c-ratio"></div>
+          <div class="tabular" hidden></div>
+          <h4 class="split">Razporeditev izbranih poslov</h4>
+          <div class="plot" id="c-hist"></div>
+        </article>
+
+        <article class="card" id="card-areas">
+          <header><h3 id="areas-title">Območja</h3></header>
+          <p class="sub">Kliknite vrstico za izbor območja.</p>
+          <div class="scroll-y" id="c-areas"></div>
+        </article>
+
+        <footer class="source" id="source"></footer>
+      </aside>
+    </main>
+
+    <nav class="tabs" aria-label="Pogledi">
+      <button type="button" data-tab="filters">Filtri</button>
+      <button type="button" data-tab="map">Zemljevid</button>
+      <button type="button" data-tab="analysis">Analiza</button>
+    </nav>
+  </div>
+
+  <div id="tip" class="tip" role="status" hidden></div>
+
+  <dialog class="method" id="method">
+    <form method="dialog"><button class="ghost" aria-label="Zapri">Zapri</button></form>
+    <h2>Metodologija</h2>
+    <p>Kataster cen je neodvisen prikaz odprtih podatkov Geodetske uprave RS in ni uradna storitev GURS. Podatki so taki, kot jih GURS objavi. Stran ne prikazuje podatkov o pogodbenih strankah, ker ti niso javni.</p>
+
+    <h3>Viri</h3>
+    <ul>
+      <li><b>Evidenca trga nepremičnin (ETN)</b>, kupoprodajni posli. Vsebuje pogodbeno ceno, datum, površine in lokacijo.</li>
+      <li><b>Evidenca vrednotenja</b>. Vsebuje posplošeno vrednost vsakega dela stavbe in parcele.</li>
+      <li><b>Register prostorskih enot in kataster nepremičnin</b>. Meje občin in katastrskih občin.</li>
+    </ul>
+    <p>GURS oba izvoza osveži enkrat tedensko. Stran vsak dan preveri, ali je izšla nova različica, in se ob novi različici sama obnovi.</p>
+
+    <h3>En posel, ena točka</h3>
+    <p>ETN pozna ceno celotnega posla, ne posamezne nepremičnine, zato je vsak posel obravnavan kot celota. Upoštevani so posli s pogodbo, sklenjeno od 1. 1. 2020 naprej.</p>
+    <ul>
+      <li><b>Stanovanje ali hiša:</b> posel vsebuje stanovanje ali hišo, lahko s pripadajočo garažo, parkirnim mestom, shrambo ali zemljiščem. Cena teh pripadajočih delov je vključena, ker je ETN ne loči.</li>
+      <li><b>Zemljišče:</b> posel brez stavb. Skupina je določena po prevladujoči površini: stavbna (zemljišča za gradnjo stavb), kmetijska, gozdna, druga (ceste, pripadajoča in neplodna zemljišča).</li>
+      <li><b>Izpuščeni so</b> posli s poslovnimi prostori in posli samo z garažami ali pomožnimi prostori.</li>
+    </ul>
+
+    <h3>Cena na m²</h3>
+    <p>Za stanovanja in hiše je cena deljena z <b>uporabno površino</b>, kot to pri stanovanjih počne GURS. Novogradnje, ki še niso v katastru, nimajo uporabne površine, zato je uporabljena površina iz pogodbe. Pri zemljiščih je deljena s površino parcel, pomnoženo s prodanim deležem. Pri hišah cena vključuje tudi zemljišče, zato je €/m² le groba primerjava.</p>
+    <p>Prikazane so <b>mediane</b>, ki so odporne na posamezne skrajne vrednosti. Posli z nesmiselno ceno na m² ostanejo v številu poslov, a ne vplivajo na cene. Območje dobi vrednost šele pri vsaj 5 poslih.</p>
+    <p>Pogodbena cena vključuje DDV, kadar je bil obračunan, kar večinoma velja za novogradnje.</p>
+
+    <h3>Privzeti filtri</h3>
+    <p>Privzeto so vključeni posli na prostem trgu s statusom Tržen posel, Tržen z neustreznimi podatki in V preverjanju. Slednjih ni smiselno izločiti, ker GURS tržnost določa za nazaj in je večina poslov od leta 2025 naprej še v preverjanju. Mednje se lahko pomešajo tudi posli, ki kasneje ne bodo označeni kot tržni.</p>
+    <p>Privzeto so izpuščeni prodaje deleža in paketi: več stanovanj ali stavb v enem poslu, stavba z več kot 3.000 m² zemljišča in zemljišča, kjer nobena skupina ne doseže 80 % površine.</p>
+
+    <h3>Razmerje do vrednosti GURS</h3>
+    <p>Pogodbena cena je deljena z vsoto <b>današnjih</b> posplošenih vrednosti vsega, kar je bilo prodano, upoštevajoč prodani delež. Razmerje za starejše posle je zato nižje, razlika pa pokaže, koliko so cene zrasle do današnjega modela vrednotenja. Razmerje manjka, kadar katere od nepremičnin ni bilo mogoče povezati, na primer po spremembi parcele.</p>
+
+    <h3>Zakaj zadnji meseci niso popolni</h3>
+    <p>Posel pride v ETN šele po oddaji poročila, pogosto več mesecev po podpisu. Zadnje četrtletje ima zato manj poslov, kar je na grafih označeno z bledim koncem črte. Leto z zvezdico še ni zaključeno.</p>
+
+    <h3>Toplotna karta</h3>
+    <p>Toplotna karta zgladi posle okoli vsake točke in prikaže geometrijsko sredino vrednosti, da posamezna draga nepremičnina ne prebarva okolice. Mesta z enim samim poslom niso obarvana. Pri več izbranih tipih se mešajo različne cenovne ravni, zato je cene najbolje primerjati znotraj enega tipa.</p>
+
+    <h3>Pogoji uporabe</h3>
+    <p>Podatki GURS so na voljo pod licenco CC BY 4.0. GURS ne jamči za njihovo pravilnost in ne odgovarja za škodo zaradi njihove uporabe ali interpretacije. Strani ne uporabljajte kot cenitve.</p>
+    <p><a href="https://github.com/uvampelj/trg-nepremicnin" rel="noopener">Izvorna koda na GitHubu</a></p>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

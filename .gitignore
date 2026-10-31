@@ -1,5 +1,7 @@
+.claude/
 .probe/
 data/raw/
+web/data/
 __pycache__/
 *.pyc
 node_modules/

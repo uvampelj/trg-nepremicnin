@@ -1,0 +1,96 @@
+name: Osveži podatke
+
+on:
+  schedule:
+    - cron: "20 6 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Objavi tudi, če GURS nima novih podatkov
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "pipeline/**"
+      - ".github/workflows/refresh.yml"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+
+      - run: pip install -r pipeline/requirements.txt
+
+      - name: Preveri, ali je GURS objavil novo različico
+        id: check
+        run: python -m pipeline.check
+
+      - name: Določi, ali je objava potrebna
+        id: run
+        env:
+          CHANGED: ${{ steps.check.outputs.changed }}
+          EVENT: ${{ github.event_name }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          if [ "$CHANGED" = "true" ] || [ "$EVENT" = "push" ] || [ "$FORCE" = "true" ]; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "GURS nima novih podatkov." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Obnovi izvorne datoteke
+        if: steps.run.outputs.needed == 'true'
+        uses: actions/cache@v4
+        with:
+          path: data/raw
+          key: raw-${{ hashFiles('status/latest.json') }}-${{ github.run_id }}
+          restore-keys: raw-
+
+      - name: Prenesi podatke GURS
+        if: steps.run.outputs.needed == 'true'
+        run: python -m pipeline.download
+
+      - name: Zgradi podatke za stran
+        if: steps.run.outputs.needed == 'true'
+        run: python -m pipeline.build
+
+      - name: Zapiši stanje podatkov
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add status/latest.json
+          git diff --cached --quiet || git commit -m "Nova različica podatkov GURS"
+          git push
+
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.run.outputs.needed == 'true'
+        with:
+          path: web
+
+      - id: deploy
+        if: steps.run.outputs.needed == 'true'
+        uses: actions/deploy-pages@v4
