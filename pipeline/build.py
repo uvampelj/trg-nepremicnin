@@ -44,6 +44,8 @@ TYPE_LABELS = {
 LAND_GROUP = {1: LAND_BUILD, 2: LAND_BUILD, 3: LAND_BUILD, 7: LAND_FARM, 8: LAND_FARM, 9: LAND_FOREST,
               4: LAND_OTHER, 5: LAND_OTHER, 6: LAND_OTHER, 10: LAND_OTHER}
 
+FARM_LAND = {7, 8, 9}  # farmland and forest, which change what a house sale really is
+
 # VRSTA_DELA_STAVBE: 1 house, 2 flat, 3 parking, 4 garage, 13 farm building,
 # 14 technical/auxiliary, 15 other. 5-12 are commercial and make a sale out of scope.
 MAIN_PARTS = {1, 2}
@@ -61,15 +63,15 @@ PRICE_BOUNDS = {  # EUR/m2, smallest credible area m2
 }
 BIG_LAND_M2 = 3000  # a building sold with this much land is closer to a farm than a house
 
-FLAG_NEW, FLAG_PART, FLAG_BUNDLE, FLAG_VAT, FLAG_PARKING, FLAG_NO_PRICE = 1, 2, 4, 8, 16, 32
+FLAG_NEW, FLAG_PART, FLAG_BUNDLE, FLAG_VAT, FLAG_PARKING, FLAG_NO_PRICE, FLAG_BIG_LAND = 1, 2, 4, 8, 16, 32, 64
 
 REQUIRED = {
     "KPP_POSLI": ["ID_POSLA", "VRSTA_KUPOPRODAJNEGA_POSLA", "DATUM_SKLENITVE_POGODBE",
                   "POGODBENA_CENA_ODSKODNINA", "VKLJUCENOST_DDV", "VRSTA_AKTA", "TRZNOST_POSLA"],
     "KPP_DELISTAVB": ["ID_POSLA", "SIFRA_KO", "OBCINA", "STEVILKA_STAVBE", "STEVILKA_DELA_STAVBE", "NASELJE",
                       "ULICA", "HISNA_STEVILKA", "DODATEK_HS", "VRSTA_DELA_STAVBE", "LETO_IZGRADNJE_DELA_STAVBE",
-                      "NOVOGRADNJA", "PRODANI_DELEZ_DELA_STAVBE", "UPORABNA_POVRSINA", "PRODANA_POVRSINA_DELA_STAVBE",
-                      "PRODANA_POVRSINA", "E_CENTROID", "N_CENTROID"],
+                      "NOVOGRADNJA", "PRODANI_DELEZ_DELA_STAVBE", "UPORABNA_POVRSINA", "POVRSINA_DELA_STAVBE",
+                      "PRODANA_POVRSINA_DELA_STAVBE", "PRODANA_POVRSINA", "E_CENTROID", "N_CENTROID"],
     "KPP_ZEMLJISCA": ["ID_POSLA", "SIFRA_KO", "IME_KO", "OBCINA", "PARCELNA_STEVILKA", "VRSTA_ZEMLJISCA",
                       "PRODANI_DELEZ_PARCELE", "POVRSINA_PARCELE", "E_CENTROID", "N_CENTROID"],
 }
@@ -126,8 +128,14 @@ def plain(text: str) -> str:
 def readable(name: str) -> str:
     """Cadastral names come in capitals: 'SVETI JURIJ PRI GROBELNEM' -> 'Sveti Jurij pri Grobelnem'."""
     small = {"pri", "na", "v", "ob", "nad", "pod", "in", "pred", "za", "do", "k", "s", "z"}
-    words = name.lower().split()
-    return " ".join(w if i and w in small else "-".join(p.capitalize() for p in w.split("-")) for i, w in enumerate(words))
+    roman = {"i", "ii", "iii", "iv"}
+
+    def word(w: str, at: int) -> str:
+        if w in roman:
+            return w.upper()
+        return w if at and w in small else "-".join(p.capitalize() for p in w.split("-"))
+
+    return " ".join(word(w, at) for at, w in enumerate(name.lower().split()))
 
 
 def region_lookup() -> tuple[dict[int, str], dict[int, str], dict[str, int]]:
@@ -148,11 +156,13 @@ def classify(deals: pd.DataFrame, parts: pd.DataFrame, land: pd.DataFrame) -> pd
     """One row per sale with its group, area, location and flags."""
     parts["main"] = parts.part_type.isin(MAIN_PARTS)
     parts["area"] = parts.useful_area.where(parts.useful_area > 0) * parts.share
+    parts["whole_area"] = parts.floor_area * parts.share
 
     # Only rows that carry the sale's identity are needed from here: main parts first.
     main = parts[parts.main].sort_values(["deal", "useful_area"], ascending=[True, False])
     agg = main.groupby("deal").agg(
         area=("area", lambda s: s.sum(min_count=len(s))),
+        whole_area=("whole_area", lambda s: s.sum(min_count=len(s))),
         main_parts=("area", "size"),
         buildings=("building", "nunique"),
         flats=("part_type", lambda s: int((s == 2).sum())),
@@ -167,14 +177,15 @@ def classify(deals: pd.DataFrame, parts: pd.DataFrame, land: pd.DataFrame) -> pd
     has_commercial = parts[parts.part_type.isin(COMMERCIAL_PARTS)].deal.unique()
     has_parking = parts[parts.part_type.isin({3, 4})].deal.unique()
     land_with_building = land.groupby("deal").area.sum()
+    farm_with_building = land[land.land_type.isin(FARM_LAND)].groupby("deal").area.sum()
 
     buildings = agg[~agg.index.isin(has_commercial)].copy()
     buildings["group"] = np.where(buildings.houses >= buildings.flats, HOUSE, FLAT)
     buildings["parking"] = buildings.index.isin(has_parking)
     buildings["land_area"] = land_with_building.reindex(buildings.index).fillna(0)
-    bundle = (buildings.buildings > 1) | ((buildings.flats > 0) & (buildings.main_parts > 1)) \
-        | (buildings.land_area >= BIG_LAND_M2)
-    buildings["bundle"] = bundle
+    buildings["farm_area"] = farm_with_building.reindex(buildings.index).fillna(0)
+    buildings["bundle"] = (buildings.buildings > 1) | ((buildings.flats > 0) & (buildings.main_parts > 1))
+    buildings["big_land"] = buildings.land_area >= BIG_LAND_M2
 
     # Land-only sales take the group holding most of the area.
     only_land = land[~land.deal.isin(parts.deal)].copy()
@@ -205,6 +216,8 @@ def add_values(sales: pd.DataFrame, parts: pd.DataFrame, land: pd.DataFrame, uni
     rows = pd.concat([in_scope[["deal", "value"]], plots[["deal", "value"]]])
     sales["gv"] = rows.groupby("deal").value.sum(min_count=1)
     sales.loc[rows[rows.value.isna()].deal.unique(), "gv"] = np.nan
+    # ETN has one price per sale, so the land's share of the value is the only way to split it.
+    sales["land_gv"] = plots.groupby("deal").value.sum().reindex(sales.index).fillna(0).where(sales.gv.notna())
 
     extra = in_scope.sort_values("main", ascending=False).drop_duplicates("deal").set_index("deal")
     sales["construction"] = extra.construction.reindex(sales.index)
@@ -245,6 +258,7 @@ def main() -> None:
         "useful_area": number(parts.UPORABNA_POVRSINA).where(lambda a: a > 0)
         .fillna(number(parts.PRODANA_POVRSINA_DELA_STAVBE).where(lambda a: a > 0))
         .fillna(number(parts.PRODANA_POVRSINA).where(lambda a: a > 0)),
+        "floor_area": number(parts.POVRSINA_DELA_STAVBE).where(lambda a: a > 0),
         "e": number(parts.E_CENTROID),
         "n": number(parts.N_CENTROID),
     }).drop_duplicates(["deal", "ko", "building", "unit"])
@@ -299,6 +313,7 @@ def main() -> None:
         + sales.vat.astype(int) * FLAG_VAT
         + sales.parking.eq(True).astype(int) * FLAG_PARKING
         + (~priced).astype(int) * FLAG_NO_PRICE
+        + sales.big_land.eq(True).astype(int) * FLAG_BIG_LAND
     )
     built = sales.built.where(sales.built.between(1500, date.today().year + 3)).fillna(0).astype(int)
 
@@ -333,6 +348,8 @@ def write_outputs(sales, municipalities, cadastral, valuation, total_rows) -> No
         "c": sales.construction.fillna(0).astype(int).tolist(),
         "s": sales.building_type.fillna(0).astype(int).tolist(),
         "l": rounded(sales.land_area),
+        "d": rounded(sales.whole_area, 1),
+        "h": rounded(sales.land_gv),
     }
     (OUT / "deals.json").write_text(json.dumps({"n": len(sales), "cols": columns}, separators=(",", ":")), encoding="utf8")
 
@@ -346,6 +363,7 @@ def write_outputs(sales, municipalities, cadastral, valuation, total_rows) -> No
         "place": [index[p] for p in place],
         "day": sales.date.dt.day.astype(int).tolist(),
         "id": sales.index.astype(int).tolist(),
+        "farm": rounded(sales.farm_area),
     }
     (OUT / "details.json").write_text(json.dumps(details, separators=(",", ":"), ensure_ascii=False), encoding="utf8")
 
@@ -374,6 +392,10 @@ def write_outputs(sales, municipalities, cadastral, valuation, total_rows) -> No
     meta["types"] = {str(k): v for k, v in TYPE_LABELS.items()}
     meta["municipalities"] = {str(k): v for k, v in municipalities.items()}
     meta["cadastral"] = {str(k): v for k, v in cadastral.items()}
+    # A cadastral community can cross a border, so it belongs where most of its sales are.
+    placed = sales[(sales.muni > 0) & (sales.ko > 0)]
+    home = placed.groupby("ko").muni.agg(lambda s: s.mode().iat[0])
+    meta["cadastralMunicipality"] = {str(int(k)): int(v) for k, v in home.items()}
     meta["construction"] = valuation["names"]["construction"]
     meta["buildingTypes"] = valuation["names"]["buildingTypes"]
     (OUT / "meta.json").write_text(json.dumps(meta, separators=(",", ":"), ensure_ascii=False), encoding="utf8")

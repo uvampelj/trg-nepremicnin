@@ -81,6 +81,7 @@
         <section class="group">
           <h3>Tržnost posla</h3>
           <div class="checks" id="f-markets"></div>
+          <button class="link" id="market-help" type="button">Kaj pomenijo kategorije?</button>
         </section>
 
         <section class="group">
@@ -90,7 +91,13 @@
             <button type="button" data-v="new">Novogradnje</button>
             <button type="button" data-v="used">Rabljeno</button>
           </div>
-          <h4>Obdobje gradnje</h4>
+          <h4>Leto gradnje <output id="built-label"></output></h4>
+          <div class="range" id="built-range">
+            <div class="range-fill"></div>
+            <input type="range" id="b0" aria-label="Zgrajeno od leta" step="1">
+            <input type="range" id="b1" aria-label="Zgrajeno do leta" step="1">
+          </div>
+          <div class="range-marks" id="built-marks"></div>
           <div class="chips small" id="f-periods"></div>
           <h4>Konstrukcija</h4>
           <div class="chips small" id="f-constructions"></div>
@@ -103,6 +110,8 @@
           <div class="pair">
             <label>Površina od <input type="number" min="0" inputmode="numeric" id="min-area" placeholder="m²"></label>
             <label>do <input type="number" min="0" inputmode="numeric" id="max-area" placeholder="m²"></label>
+            <label>Zemljišče od <input type="number" min="0" inputmode="numeric" id="min-land" placeholder="m²"></label>
+            <label>do <input type="number" min="0" inputmode="numeric" id="max-land" placeholder="m²"></label>
             <label>Cena od <input type="number" min="0" inputmode="numeric" id="min-price" placeholder="€"></label>
             <label>do <input type="number" min="0" inputmode="numeric" id="max-price" placeholder="€"></label>
           </div>
@@ -146,8 +155,8 @@
         <div class="kpis" id="kpis"></div>
 
         <article class="card" id="card-trend">
-          <header><h3>Cena na m² po četrtletjih</h3><button class="link view" type="button">Tabela</button></header>
-          <p class="sub">Mediana izbranih tipov. Bledi konec črte: posli še prihajajo v evidenco.</p>
+          <header><h3>Cena na m² skozi čas</h3><button class="link view" type="button">Tabela</button></header>
+          <p class="sub">Mediana izbranih tipov po četrtletjih, pri premalo poslih po letih. Bledi konec črte: posli še prihajajo v evidenco.</p>
           <div class="plot" id="c-trend"></div>
           <div class="tabular" hidden></div>
         </article>
@@ -185,6 +194,13 @@
           <div class="tabular" hidden></div>
           <h4 class="split">Razporeditev izbranih poslov</h4>
           <div class="plot" id="c-hist"></div>
+        </article>
+
+        <article class="card" id="card-land">
+          <header><h3>Hiše po velikosti zemljišča</h3></header>
+          <p class="sub">Večje parcele so pogosteje na podeželju, zato surove cene z zemljiščem padajo. Zadnji stolpec primerja €/m² s podobno velikimi hišami v isti katastrski občini.</p>
+          <div class="scroll-x" id="c-land"></div>
+          <p class="sub land-note" id="land-note" hidden>Hiše z več kot 3.000 m² zemljišča se prikažejo, če vključite pakete ali nastavite filter Zemljišče.</p>
         </article>
 
         <article class="card" id="card-areas">
@@ -228,13 +244,35 @@
     </ul>
 
     <h3>Cena na m²</h3>
-    <p>Za stanovanja in hiše je cena deljena z <b>uporabno površino</b>, kot to pri stanovanjih počne GURS. Novogradnje, ki še niso v katastru, nimajo uporabne površine, zato je uporabljena površina iz pogodbe. Pri zemljiščih je deljena s površino parcel, pomnoženo s prodanim deležem. Pri hišah cena vključuje tudi zemljišče, zato je €/m² le groba primerjava.</p>
+    <p>Za stanovanja in hiše je cena deljena z <b>uporabno površino</b>, kot to pri stanovanjih počne GURS. Novogradnje, ki še niso v katastru, nimajo uporabne površine, zato je uporabljena površina iz pogodbe. Pri zemljiščih je deljena s površino parcel, pomnoženo s prodanim deležem.</p>
+    <p>Uporabna površina je tisti del neto tlorisne površine, ki ustreza namenu stavbe. Skupna površina je površina dela stavbe iz ETN, ki praviloma zajema tudi kleti in pomožne prostore. Pri hišah je približno poldrugič večja od uporabne, zato je €/m² višji, kot bi bil na skupno površino.</p>
     <p>Prikazane so <b>mediane</b>, ki so odporne na posamezne skrajne vrednosti. Posli z nesmiselno ceno na m² ostanejo v številu poslov, a ne vplivajo na cene. Območje dobi vrednost šele pri vsaj 5 poslih.</p>
     <p>Pogodbena cena vključuje DDV, kadar je bil obračunan, kar večinoma velja za novogradnje.</p>
 
+    <h3>Območja</h3>
+    <p>Zemljevid pozna dve ravni, občine in katastrske občine. Katastrske občine so najmanjše območje, ki pokriva celo državo in deli tudi mesta: v Ljubljani so to na primer Črnuče, Bežigrad in Zgornja Šiška. Ob približanju zemljevid sam preklopi nanje. Njihove meje se ne ujemajo nujno s četrtnimi skupnostmi. Klik na območje omeji analizo na to območje, ponoven klik izbor prekliče.</p>
+
+    <h3>Zemljišče pri hišah</h3>
+    <p>Skoraj vsaka prodana hiša ima v poslu vpisane tudi parcele, ETN pa pozna samo eno ceno za celoten posel. Zato je vpliv zemljišča prikazan na tri načine.</p>
+    <ul>
+      <li><b>Zemljišče</b> je vsota vseh parcel v poslu, pomnožena s prodanim deležem. Pri posamezni hiši so kmetijska in gozdna zemljišča navedena posebej, ker ne pomenijo enakega kot vrt ali stavbna parcela.</li>
+      <li><b>€/m² brez zemljišča</b> je ocena. Cena je razdeljena v razmerju med današnjima posplošenima vrednostma zemljišča in stavbe s pripadajočimi deli, del za stavbo pa je deljen z uporabno površino. Ocena manjka, kadar katere od nepremičnin v poslu ni bilo mogoče povezati z vrednostjo.</li>
+      <li><b>Proti podobnim</b> primerja €/m² hiše s hišami podobne velikosti (do 70 m², do 110 m², nad 110 m²) v isti katastrski občini, potem ko je odstranjena splošna rast cen med leti. Upoštevane so skupine z vsaj 3 hišami, razlika pa je prikazana šele pri vsaj 10 hišah.</li>
+    </ul>
+
+    <h3 id="m-market">Tržnost posla</h3>
+    <p>Tržnost določi GURS kot organ vrednotenja po 7. členu <a href="https://www.uradni-list.si/glasilo-uradni-list-rs/vsebina/2018-01-1758/pravilnik-o-evidenci-trga-nepremicnin" rel="noopener">Pravilnika o evidenci trga nepremičnin</a>. Oznaka pove, ali posel izpolnjuje pogoje za tržno ceno, ne pa ali je cena visoka ali nizka.</p>
+    <ul>
+      <li><b>Tržen posel:</b> preverjeno je, da posel izpolnjuje zakonske pogoje za tržno ceno.</li>
+      <li><b>Tržen, neustrezni podatki:</b> posel je tržen, vendar se sporočeni podatki o nepremičnini ne ujemajo z uradnimi evidencami. Površina ali drugi podatki so zato lahko netočni.</li>
+      <li><b>Drug posel:</b> ob preverjanju ni bilo ugotovljeno, da posel izpolnjuje pogoje za tržno ceno.</li>
+      <li><b>Neopredeljen:</b> glavnega predmeta prodaje ni mogoče nedvoumno določiti, zato cene ni mogoče pripisati določeni nepremičnini.</li>
+      <li><b>V preverjanju:</b> oznaka iz šifranta ETN za posle, ki jih GURS še ni razvrstil. Pravilnik je ne opredeljuje posebej.</li>
+    </ul>
+
     <h3>Privzeti filtri</h3>
     <p>Privzeto so vključeni posli na prostem trgu s statusom Tržen posel, Tržen z neustreznimi podatki in V preverjanju. Slednjih ni smiselno izločiti, ker GURS tržnost določa za nazaj in je večina poslov od leta 2025 naprej še v preverjanju. Mednje se lahko pomešajo tudi posli, ki kasneje ne bodo označeni kot tržni.</p>
-    <p>Privzeto so izpuščeni prodaje deleža in paketi: več stanovanj ali stavb v enem poslu, stavba z več kot 3.000 m² zemljišča in zemljišča, kjer nobena skupina ne doseže 80 % površine.</p>
+    <p>Privzeto so izpuščeni prodaje deleža in paketi: več stanovanj ali stavb v enem poslu, stavba z več kot 3.000 m² zemljišča in zemljišča, kjer nobena skupina ne doseže 80 % površine. Hiše z velikim zemljiščem se vrnejo tudi, če nastavite filter Zemljišče.</p>
 
     <h3>Razmerje do vrednosti GURS</h3>
     <p>Pogodbena cena je deljena z vsoto <b>današnjih</b> posplošenih vrednosti vsega, kar je bilo prodano, upoštevajoč prodani delež. Razmerje za starejše posle je zato nižje, razlika pa pokaže, koliko so cene zrasle do današnjega modela vrednotenja. Razmerje manjka, kadar katere od nepremičnin ni bilo mogoče povezati, na primer po spremembi parcele.</p>

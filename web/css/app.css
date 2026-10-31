@@ -130,7 +130,8 @@ a { color: inherit; }
   margin-bottom: 8px;
 }
 .group h4 { margin: 12px 0 6px; }
-.group h3 output { color: var(--ink); text-transform: none; letter-spacing: 0; }
+.group h3 output, .group h4 output { color: var(--ink); text-transform: none; letter-spacing: 0; }
+.group .link { margin-top: 5px; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .chip {
@@ -207,6 +208,7 @@ a { color: inherit; }
   cursor: grab;
 }
 .range-marks { display: flex; justify-content: space-between; font: 400 10px var(--mono); color: var(--ink-3); margin-top: 1px; }
+.range-marks + .chips { margin-top: 7px; }
 .play { display: inline-flex; align-items: center; gap: 6px; margin-top: 9px; color: var(--ink-2); font-size: 12px; }
 .play:hover { color: var(--accent); }
 .play[aria-pressed='true'] { color: var(--accent); }
@@ -325,6 +327,7 @@ a { color: inherit; }
 .card > header { display: flex; align-items: baseline; gap: 10px; }
 .card > header h3 { font-size: 14.5px; font-weight: 600; flex: 1; }
 .sub { color: var(--ink-3); font-size: 12.5px; margin: 1px 0 8px; }
+.land-note { margin: 8px 0 0; }
 .card > header + .plot, .card > header + .scroll-y { margin-top: 8px; }
 .split { font-size: 13px; font-weight: 600; margin: 14px 0 4px; }
 .mini-segment { display: inline-flex; font-size: 12px; }

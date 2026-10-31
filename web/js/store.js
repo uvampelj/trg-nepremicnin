@@ -1,12 +1,19 @@
 // Loads the sale records into typed arrays and answers every filter and aggregate
 // in the browser, so a filter change never needs a server.
 
-const FLAG_NEW = 1, FLAG_PART = 2, FLAG_BUNDLE = 4, FLAG_NO_PRICE = 32;
+const FLAG_NEW = 1, FLAG_PART = 2, FLAG_BUNDLE = 4, FLAG_NO_PRICE = 32, FLAG_BIG_LAND = 64;
 
 export const MIN_SAMPLE = 5;
 const MIN_GROWTH_SAMPLE = 8;   // two small medians make a very noisy ratio
+const MIN_PEERS = 3;           // sales needed in one place and size class to compare them
+const MIN_PEER_SAMPLE = 10;    // a gap to peers is noisier than a plain median
 
 export const TYPE_IDS = [1, 2, 3, 4, 5, 6];
+export const HOUSE = 2;
+const FLAT = 1;
+
+const OLDEST_BUILT = 1900;     // the slider's first stop stands for this year and everything older
+const SIZE_CLASSES = [70, 110];   // m2, houses are only compared with houses of similar size
 
 export const KINDS = {
   1: 'Prosti trg',
@@ -31,6 +38,15 @@ export const PERIODS = [
   { id: 4, label: '1971–90', lo: 1971, hi: 1990 },
   { id: 5, label: '1991–2010', lo: 1991, hi: 2010 },
   { id: 6, label: 'po 2010', lo: 2011, hi: 9999 },
+];
+
+export const LAND_BANDS = [
+  { label: 'do 300 m²', hi: 300 },
+  { label: '300–600 m²', hi: 600 },
+  { label: '600–1.000 m²', hi: 1000 },
+  { label: '1.000–2.000 m²', hi: 2000 },
+  { label: '2.000–3.000 m²', hi: 3000 },
+  { label: 'nad 3.000 m²', hi: Infinity },
 ];
 
 async function json(url, retries = 2) {
@@ -79,21 +95,27 @@ export async function loadStore() {
     t: Uint8Array.from(c.t), m: Uint8Array.from(c.m), o: Uint16Array.from(c.o), k: Uint16Array.from(c.k),
     f: Uint8Array.from(c.f), v: Uint8Array.from(c.v), r: Uint8Array.from(c.r), b: Uint16Array.from(c.b),
     c: Uint8Array.from(c.c), s: Uint8Array.from(c.s), p: Float64Array.from(c.p), a: Float32Array.from(c.a),
-    g: Float64Array.from(c.g), l: Float32Array.from(c.l),
+    g: Float64Array.from(c.g), l: Float32Array.from(c.l), d: Float32Array.from(c.d), h: Float64Array.from(c.h),
     lon: new Float32Array(n), lat: new Float32Array(n), mx: new Float32Array(n), my: new Float32Array(n),
-    em: new Float32Array(n), ratio: new Float32Array(n),
+    em: new Float32Array(n), bm: new Float32Array(n), ratio: new Float32Array(n),
   };
+  let builtMax = 0;
   for (let i = 0; i < n; i++) {
     const lon = c.x[i] / 1e4, lat = c.y[i] / 1e4;
     store.lon[i] = lon;
     store.lat[i] = lat;
     if (lon) [store.mx[i], store.my[i]] = mercator(lon, lat);
     store.em[i] = store.f[i] & FLAG_NO_PRICE ? NaN : store.p[i] / store.a[i];
+    const building = (store.t[i] === HOUSE || store.t[i] === FLAT) && store.g[i] > 0;
+    store.bm[i] = building ? store.em[i] * (1 - store.h[i] / store.g[i]) : NaN;
     const ratio = store.g[i] > 0 ? store.p[i] / store.g[i] : NaN;
     store.ratio[i] = ratio > 0.1 && ratio < 10 ? ratio : NaN;
+    if (store.b[i] > builtMax) builtMax = store.b[i];
   }
   store.firstYear = meta.firstYear;
   store.lastYear = meta.firstYear + Math.floor(meta.lastMonth / 12);
+  store.builtMin = OLDEST_BUILT;
+  store.builtMax = builtMax;
   store.firstPartialQuarter = findPartialQuarter(store);
   return store;
 }
@@ -120,10 +142,11 @@ export function defaultState(store) {
     kinds: new Set([1]),
     markets: new Set([1, 2, 5]),
     build: 'all',
-    periods: new Set(),
+    b0: store.builtMin,
+    b1: store.builtMax,
     constructions: new Set(),
     buildingTypes: new Set(),
-    minArea: null, maxArea: null, minPrice: null, maxPrice: null,
+    minArea: null, maxArea: null, minLand: null, maxLand: null, minPrice: null, maxPrice: null,
     includePart: false,
     includeBundle: false,
     area: null,
@@ -137,20 +160,24 @@ export function defaultState(store) {
 // map:  passes every filter except the selected area (the map always shows the country)
 // sel:  passes everything
 export function select(store, s) {
-  const { n, t, m, f, v, r, b, c, s: bt, p, a, o, k } = store;
+  const { n, t, m, f, v, r, b, c, s: bt, p, a, o, k, l } = store;
   const base = new Int32Array(n), map = new Int32Array(n), sel = new Int32Array(n);
   let nBase = 0, nMap = 0, nSel = 0;
 
   const m0 = (s.y0 - store.firstYear) * 12, m1 = (s.y1 - store.firstYear) * 12 + 11;
-  const blocked = (s.includePart ? 0 : FLAG_PART) | (s.includeBundle ? 0 : FLAG_BUNDLE);
+  // Asking for a land size means asking for these houses too, even past the default cut.
+  const wantsBigLand = s.includeBundle || s.minLand !== null || s.maxLand !== null;
+  const blocked = (s.includePart ? 0 : FLAG_PART) | (s.includeBundle ? 0 : FLAG_BUNDLE) | (wantsBigLand ? 0 : FLAG_BIG_LAND);
   const kinds = new Uint8Array(16), markets = new Uint8Array(16), types = new Uint8Array(8);
   s.kinds.forEach((x) => { kinds[x] = 1; });
   s.markets.forEach((x) => { markets[x] = 1; });
   s.types.forEach((x) => { types[x] = 1; });
   const areaKey = s.area ? (s.area.level === 'o' ? o : k) : null;
   const areaId = s.area ? s.area.id : 0;
-  const periods = [...s.periods].map((id) => PERIODS.find((x) => x.id === id));
   const newOnly = s.build === 'new', usedOnly = s.build === 'used';
+  // Land has no build year, so any limit on the year leaves it out.
+  const builtOn = s.b0 > store.builtMin || s.b1 < store.builtMax;
+  const builtLow = s.b0 > store.builtMin ? s.b0 : 1, builtHigh = s.b1 < store.builtMax ? s.b1 : 9999;
 
   for (let i = 0; i < n; i++) {
     if (m[i] < m0 || m[i] > m1) continue;
@@ -160,9 +187,11 @@ export function select(store, s) {
     if (usedOnly && f[i] & FLAG_NEW) continue;
     if (s.constructions.size && !s.constructions.has(c[i])) continue;
     if (s.buildingTypes.size && !s.buildingTypes.has(bt[i])) continue;
-    if (periods.length && !periods.some((x) => b[i] >= x.lo && b[i] <= x.hi)) continue;
+    if (builtOn && (b[i] < builtLow || b[i] > builtHigh)) continue;
     if (s.minArea !== null && a[i] < s.minArea) continue;
     if (s.maxArea !== null && a[i] > s.maxArea) continue;
+    if (s.minLand !== null && l[i] < s.minLand) continue;
+    if (s.maxLand !== null && l[i] > s.maxLand) continue;
     if (s.minPrice !== null && p[i] < s.minPrice) continue;
     if (s.maxPrice !== null && p[i] > s.maxPrice) continue;
 
@@ -176,14 +205,15 @@ export function select(store, s) {
   return { base: base.subarray(0, nBase), map: map.subarray(0, nMap), sel: sel.subarray(0, nSel) };
 }
 
-const emptyCell = () => ({ n: 0, value: 0, em: [], price: [], ratio: [] });
+const emptyCell = () => ({ n: 0, value: 0, em: [], bm: [], price: [], ratio: [] });
 
 function collect(cell, store, i) {
   cell.n++;
   cell.value += store.p[i];
   cell.price.push(store.p[i]);
-  const em = store.em[i], ratio = store.ratio[i];
+  const em = store.em[i], bm = store.bm[i], ratio = store.ratio[i];
   if (em === em) cell.em.push(em);
+  if (bm === bm) cell.bm.push(bm);
   if (ratio === ratio) cell.ratio.push(ratio);
 }
 
@@ -192,8 +222,10 @@ function summarise(cell) {
     n: cell.n,
     value: cell.value,
     nEm: cell.em.length,
+    nBm: cell.bm.length,
     nRatio: cell.ratio.length,
     em: median(cell.em),
+    bm: median(cell.bm),
     price: median(cell.price),
     ratio: median(cell.ratio),
   };
@@ -252,6 +284,43 @@ export function analyse(store, s, lists) {
   };
 }
 
+// Raw prices fall as land grows, because big plots sit in the countryside. Each house is
+// therefore also set against houses of similar size in the same cadastral community.
+export function housesByLand(store, list) {
+  const houses = list.filter((i) => store.t[i] === HOUSE && store.em[i] === store.em[i]);
+  const yearOf = (i) => Math.floor(store.m[i] / 12);
+  const perYear = new Map();
+  for (const i of houses) {
+    if (!perYear.has(yearOf(i))) perYear.set(yearOf(i), []);
+    perYear.get(yearOf(i)).push(store.em[i]);
+  }
+  const yearMedian = new Map([...perYear].map(([year, values]) => [year, median(values)]));
+
+  const peers = new Map();
+  const sizeClass = (area) => SIZE_CLASSES.filter((edge) => area > edge).length;
+  for (const i of houses) {
+    const key = store.k[i] * 10 + sizeClass(store.a[i]);
+    if (!peers.has(key)) peers.set(key, []);
+    peers.get(key).push(i);
+  }
+
+  const bands = LAND_BANDS.map(() => ({ all: emptyCell(), peers: [] }));
+  const bandOf = (land) => LAND_BANDS.findIndex((band) => land < band.hi);
+  for (const i of houses) collect(bands[bandOf(store.l[i])].all, store, i);
+  for (const group of peers.values()) {
+    if (group.length < MIN_PEERS) continue;
+    const logs = group.map((i) => Math.log(store.em[i] / yearMedian.get(yearOf(i))));
+    const mean = logs.reduce((sum, v) => sum + v, 0) / logs.length;
+    group.forEach((i, at) => bands[bandOf(store.l[i])].peers.push(logs[at] - mean));
+  }
+  return bands.map(({ all, peers: gaps }, at) => ({
+    ...summarise(all),
+    label: LAND_BANDS[at].label,
+    nPeers: gaps.length,
+    peers: gaps.length >= MIN_PEER_SAMPLE ? Math.exp(median(gaps)) - 1 : NaN,
+  }));
+}
+
 export function regions(store, s, list, level) {
   const key = level === 'o' ? store.o : store.k;
   const groups = new Map();
@@ -282,6 +351,7 @@ export function metricValue(rec, metric) {
   if (!rec) return NaN;
   switch (metric) {
     case 'em': return rec.nEm >= MIN_SAMPLE ? rec.em : NaN;
+    case 'bm': return rec.nBm >= MIN_SAMPLE ? rec.bm : NaN;
     case 'price': return rec.n >= MIN_SAMPLE ? rec.price : NaN;
     case 'ratio': return rec.nRatio >= MIN_SAMPLE ? rec.ratio : NaN;
     case 'growth': return rec.growth;

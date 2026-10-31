@@ -21,11 +21,16 @@ export function perM2(v) {
   return `${twoDigits.format(v)} €/m²`;
 }
 
-export const percent = (v) => (Number.isFinite(v) ? `${v > 0 ? '+' : ''}${whole.format(v * 100)} %` : '–');
+export function percent(v) {
+  if (!Number.isFinite(v)) return '–';
+  const points = Math.round(v * 100) || 0;   // never a signed zero
+  return `${points > 0 ? '+' : ''}${whole.format(points)} %`;
+}
 export const ratio = (v) => (Number.isFinite(v) ? twoDigits.format(v) : '–');
 
 export const METRICS = {
   em: { label: '€/m²', title: 'Mediana cene na m²', format: perM2, diverging: false, heat: true },
+  bm: { label: '€/m² brez zemljišča', title: 'Mediana cene na m² brez zemljišča, ocena', format: perM2, diverging: false, heat: true },
   price: { label: 'Cena', title: 'Mediana pogodbene cene', format: money, diverging: false, heat: true },
   count: { label: 'Št. poslov', title: 'Število poslov', format: count, diverging: false, heat: true },
   growth: { label: 'Rast', title: 'Rast mediane €/m² v izbranem obdobju', format: percent, diverging: true, center: 0, heat: false },

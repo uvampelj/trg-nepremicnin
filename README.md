@@ -8,7 +8,8 @@ Interaktivni zemljevid prodanih stanovanj, hiš in zemljišč v Sloveniji od let
 - toplotna karta cen, območja in posamezni posli
 - trendi po četrtletjih, medletna rast, posli po tipih
 - razmerje med pogodbeno ceno in posplošeno vrednostjo GURS
-- filtri po tipu, letu, vrsti posla, tržnosti, novogradnji, obdobju gradnje, konstrukciji, površini in ceni
+- filtri po tipu, letu, vrsti posla, tržnosti, novogradnji, letu gradnje, konstrukciji, površini, zemljišču in ceni
+- pri hišah velikost zemljišča, ocena €/m² brez zemljišča in primerjava s podobnimi hišami v isti katastrski občini
 - povezava vsebuje izbrane filtre, zato jo lahko delite; izbor prenesete kot CSV
 
 Stran je neodvisen prikaz odprtih podatkov in ni uradna storitev GURS. Ni cenitev.

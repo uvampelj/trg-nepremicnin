@@ -1,5 +1,5 @@
 import {
-  KINDS, MARKETS, MIN_SAMPLE, PERIODS, TYPE_IDS, analyse, defaultState, loadDetails, loadStore,
+  HOUSE, KINDS, MARKETS, MIN_SAMPLE, PERIODS, TYPE_IDS, analyse, defaultState, housesByLand, loadDetails, loadStore,
   median, metricValue, quarterLabel, regions, select,
 } from './store.js';
 import { METRICS, count, money, percent, perM2, ratio } from './scale.js';
@@ -10,6 +10,7 @@ const $ = (id) => document.getElementById(id);
 const seriesColor = (t) => `var(--s${t})`;
 const LAND_TYPES = new Set([3, 4, 5, 6]);
 const TIP_DEALS = 5;   // sales listed in the tooltip of a shared point
+const TIP_FACTS = 7;   // facts about a single sale; the popup shows them all
 
 let store, state, map, lists, stats, analysis;
 let stackBy = 'n';
@@ -35,13 +36,15 @@ const typeName = (t) => store.meta.types[t];
 
 function areaName(area) {
   if (!area) return 'Slovenija';
-  return area.level === 'o' ? store.meta.municipalities[area.id] : `k. o. ${store.meta.cadastral[area.id]}`;
+  if (area.level === 'o') return store.meta.municipalities[area.id];
+  const home = store.meta.municipalities[store.meta.cadastralMunicipality[area.id]];
+  return `${home ? `${home}, ` : ''}k. o. ${store.meta.cadastral[area.id]}`;
 }
 
 /* URL ------------------------------------------------------------------ */
 
-const SETS = { t: 'types', k: 'kinds', r: 'markets', p: 'periods', c: 'constructions', b: 'buildingTypes' };
-const NUMS = { a0: 'minArea', a1: 'maxArea', p0: 'minPrice', p1: 'maxPrice' };
+const SETS = { t: 'types', k: 'kinds', r: 'markets', c: 'constructions', b: 'buildingTypes' };
+const NUMS = { a0: 'minArea', a1: 'maxArea', z0: 'minLand', z1: 'maxLand', p0: 'minPrice', p1: 'maxPrice' };
 
 function writeHash() {
   const d = defaultState(store);
@@ -51,6 +54,7 @@ function writeHash() {
     if (now !== base) q.set(key, now);
   }
   if (state.y0 !== d.y0 || state.y1 !== d.y1) q.set('y', `${state.y0}-${state.y1}`);
+  if (state.b0 !== d.b0 || state.b1 !== d.b1) q.set('i', `${state.b0}-${state.b1}`);
   for (const [key, name] of Object.entries(NUMS)) if (state[name] !== null) q.set(key, state[name]);
   if (state.build !== 'all') q.set('g', state.build);
   if (state.includePart) q.set('dp', 1);
@@ -70,6 +74,10 @@ function readHash() {
   if (q.has('y')) {
     const [a, b] = q.get('y').split('-').map(Number);
     if (a >= store.firstYear && b <= store.lastYear && a <= b) { state.y0 = a; state.y1 = b; }
+  }
+  if (q.has('i')) {
+    const [a, b] = q.get('i').split('-').map(Number);
+    if (a >= store.builtMin && b <= store.builtMax && a <= b) { state.b0 = a; state.b1 = b; }
   }
   for (const [key, name] of Object.entries(NUMS)) if (q.has(key)) state[name] = Number(q.get(key));
   if (['new', 'used'].includes(q.get('g'))) state.build = q.get('g');
@@ -117,10 +125,60 @@ function segment(host, get, put) {
   host.sync = () => host.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === get()));
 }
 
+function rangePair(lowId, highId, min, max, put) {
+  for (const id of [lowId, highId]) {
+    const input = $(id);
+    input.min = min;
+    input.max = max;
+    input.addEventListener('input', () => {
+      stopPlay();
+      const a = Number($(lowId).value), b = Number($(highId).value);
+      put(Math.min(a, b), Math.max(a, b));
+      changed();
+    });
+  }
+}
+
+function syncRange(trackId, lowId, highId, low, high, min, max) {
+  $(lowId).value = low;
+  $(highId).value = high;
+  const span = max - min || 1;
+  const track = $(trackId);
+  track.style.setProperty('--from', `${((low - min) / span) * 100}%`);
+  track.style.setProperty('--to', `${((high - min) / span) * 100}%`);
+}
+
+// A period chip is a shortcut for the slider, so the slider stays the only state.
+const periodSpan = (period) => [Math.max(period.lo, store.builtMin), Math.min(period.hi, store.builtMax)];
+
+function periodChips(host) {
+  host.innerHTML = PERIODS.map((p) => `<button class="chip" type="button" data-id="${p.id}">${p.label}</button>`).join('');
+  host.addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    stopPlay();
+    const on = chip.getAttribute('aria-pressed') === 'true';
+    [state.b0, state.b1] = on ? [store.builtMin, store.builtMax] : periodSpan(PERIODS.find((p) => p.id === Number(chip.dataset.id)));
+    changed();
+  });
+}
+
+function builtLabel() {
+  const from = state.b0 > store.builtMin, to = state.b1 < store.builtMax;
+  if (from && to) return state.b0 === state.b1 ? `${state.b0}` : `${state.b0}–${state.b1}`;
+  if (from) return `od ${state.b0}`;
+  return to ? `do ${state.b1}` : 'vsa leta';
+}
+
+function openMethod(sectionId) {
+  $('method').showModal();
+  if (sectionId) $(sectionId).scrollIntoView();
+}
+
 function buildControls() {
   const { meta } = store;
   chipGroup($('f-types'), TYPE_IDS.map((t) => [t, typeName(t)]), () => state.types, true);
-  chipGroup($('f-periods'), PERIODS.map((p) => [p.id, p.label]), () => state.periods);
+  periodChips($('f-periods'));
   const construction = Object.entries(meta.construction).filter(([id]) => Number(id) > 0);
   chipGroup($('f-constructions'), construction, () => state.constructions);
   const buildingTypes = Object.entries(meta.buildingTypes).filter(([id]) => Number(id) > 0);
@@ -135,25 +193,18 @@ function buildControls() {
   segment($('f-level'), () => state.level, (v) => { state.level = v; });
   segment($('stack-by'), () => stackBy, (v) => { stackBy = v; });
 
-  for (const id of ['y0', 'y1']) {
-    const input = $(id);
-    input.min = store.firstYear;
-    input.max = store.lastYear;
-    input.addEventListener('input', () => {
-      stopPlay();
-      const a = Number($('y0').value), b = Number($('y1').value);
-      if (id === 'y0') state.y0 = Math.min(a, b); else state.y1 = Math.max(a, b);
-      if (id === 'y0' && a > b) state.y1 = a;
-      if (id === 'y1' && b < a) state.y0 = b;
-      changed();
-    });
-  }
+  rangePair('y0', 'y1', store.firstYear, store.lastYear, (low, high) => { state.y0 = low; state.y1 = high; });
+  rangePair('b0', 'b1', store.builtMin, store.builtMax, (low, high) => { state.b0 = low; state.b1 = high; });
   $('year-marks').innerHTML = Array.from({ length: store.lastYear - store.firstYear + 1 }, (_, i) => `<span>${String(store.firstYear + i).slice(2)}</span>`).join('');
+  $('built-marks').innerHTML = `<span>do ${store.builtMin}</span><span>${store.builtMax}</span>`;
   $('play').addEventListener('click', togglePlay);
 
   const names = new Map();
   for (const [id, name] of Object.entries(meta.municipalities)) names.set(name, { level: 'o', id: Number(id) });
-  for (const [id, name] of Object.entries(meta.cadastral)) names.set(`${name} (k. o.)`, { level: 'k', id: Number(id) });
+  for (const [id, name] of Object.entries(meta.cadastral)) {
+    const home = meta.municipalities[meta.cadastralMunicipality[id]];
+    names.set(`${home ? `${home}, ` : ''}${name} (k. o.)`, { level: 'k', id: Number(id) });
+  }
   $('area-list').innerHTML = [...names.keys()].sort((a, b) => a.localeCompare(b, 'sl')).map((n) => `<option value="${n.replace(/"/g, '&quot;')}">`).join('');
   $('f-area').addEventListener('change', (e) => {
     const area = names.get(e.target.value);
@@ -168,6 +219,8 @@ function buildControls() {
   });
   bindNumber('min-area', 'minArea');
   bindNumber('max-area', 'maxArea');
+  bindNumber('min-land', 'minLand');
+  bindNumber('max-land', 'maxLand');
   bindNumber('min-price', 'minPrice');
   bindNumber('max-price', 'maxPrice');
   $('include-part').addEventListener('change', (e) => { state.includePart = e.target.checked; changed(); });
@@ -187,7 +240,8 @@ function buildControls() {
     card.querySelectorAll('.tabular').forEach((t) => { t.hidden = !showing; });
   }));
 
-  $('open-method').addEventListener('click', () => $('method').showModal());
+  $('open-method').addEventListener('click', () => openMethod());
+  $('market-help').addEventListener('click', () => openMethod('m-market'));
   $('toggle-theme').addEventListener('click', () => {
     const next = themeNow() === 'dark' ? 'light' : 'dark';
     document.documentElement.dataset.theme = next;
@@ -213,7 +267,10 @@ function syncTabs() {
 function syncControls() {
   const mark = (host, set) => host.querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', set.has(Number(c.dataset.id))));
   mark($('f-types'), state.types);
-  mark($('f-periods'), state.periods);
+  $('f-periods').querySelectorAll('.chip').forEach((chip) => {
+    const [low, high] = periodSpan(PERIODS.find((p) => p.id === Number(chip.dataset.id)));
+    chip.setAttribute('aria-pressed', low === state.b0 && high === state.b1);
+  });
   mark($('f-constructions'), state.constructions);
   mark($('f-building-types'), state.buildingTypes);
   const tick = (host, set) => host.querySelectorAll('input').forEach((c) => { c.checked = set.has(Number(c.dataset.id)); });
@@ -221,17 +278,15 @@ function syncControls() {
   tick($('f-markets'), state.markets);
   ['f-build', 'f-mode', 'f-metric', 'f-level', 'stack-by'].forEach((id) => $(id).sync());
 
-  $('f-level').hidden = state.mode !== 'areas';
-  $('y0').value = state.y0;
-  $('y1').value = state.y1;
-  const span = store.lastYear - store.firstYear || 1;
-  const track = $('year-range');
-  track.style.setProperty('--from', `${((state.y0 - store.firstYear) / span) * 100}%`);
-  track.style.setProperty('--to', `${((state.y1 - store.firstYear) / span) * 100}%`);
+  syncRange('year-range', 'y0', 'y1', state.y0, state.y1, store.firstYear, store.lastYear);
+  syncRange('built-range', 'b0', 'b1', state.b0, state.b1, store.builtMin, store.builtMax);
   $('year-label').textContent = state.y0 === state.y1 ? `${state.y0}` : `${state.y0}–${state.y1}`;
+  $('built-label').textContent = builtLabel();
 
   $('min-area').value = state.minArea ?? '';
   $('max-area').value = state.maxArea ?? '';
+  $('min-land').value = state.minLand ?? '';
+  $('max-land').value = state.maxLand ?? '';
   $('min-price').value = state.minPrice ?? '';
   $('max-price').value = state.maxPrice ?? '';
   $('include-part').checked = state.includePart;
@@ -243,7 +298,7 @@ function syncControls() {
 
   const classesChosen = new Set([...state.types].map((t) => (LAND_TYPES.has(t) ? t : 0)));
   const hint = $('map-hint');
-  hint.hidden = !(classesChosen.size > 1 && ['em', 'growth'].includes(state.metric));
+  hint.hidden = !(classesChosen.size > 1 && ['em', 'bm', 'growth'].includes(state.metric));
   hint.textContent = 'Izbrani tipi imajo različne cenovne ravni. €/m² primerjajte znotraj enega tipa.';
 }
 
@@ -301,6 +356,7 @@ function render() {
   map.update({ state, list: lists.map, stats });
   renderKpis();
   renderCharts();
+  renderLand();
   renderAreas();
   writeHash();
 }
@@ -316,12 +372,14 @@ function renderKpis() {
   const change = Number.isFinite(a.yoy)
     ? `<i aria-hidden="true">${a.yoy >= 0 ? '▲' : '▼'}</i> ${percent(a.yoy)} glede na prejšnje leto · ` : '';
   const delta = latest ? `<span class="delta">${change}${count(latest.nEm)} poslov</span>` : '';
+  const withoutLand = state.types.has(HOUSE) && latest?.nBm >= MIN_SAMPLE
+    ? `<span class="delta">Brez zemljišča približno ${perM2(latest.bm)}</span>` : '';
   const tile = (label, value, note = '') => `<div class="tile"><span>${label}</span><strong>${value}</strong>${note ? `<small>${note}</small>` : ''}</div>`;
   $('kpis').innerHTML = `
     <div class="hero">
       <span>Mediana cene na m²${latest ? `, ${yearLabel(latest.year)}` : ''}</span>
       <strong>${latest ? perM2(latest.em) : '–'}</strong>
-      ${delta}
+      ${delta}${withoutLand}
     </div>
     ${tile('Posli', count(a.totals.n))}
     ${tile('Promet', money(a.totals.value))}
@@ -336,6 +394,7 @@ function renderCharts() {
   const partialIndex = a.quarters.indexOf(store.firstPartialQuarter);
   const partialFrom = partialIndex > 0 ? partialIndex - 1 : Infinity;
   const quarterNames = a.quarters.map((q) => quarterLabel(store, q));
+  const yearNames = a.years.map(yearLabel);
 
   // Small multiples: land and flats live on different scales, so never one axis.
   const host = $('c-trend');
@@ -346,12 +405,20 @@ function renderCharts() {
     : '<p class="empty">Izberite vsaj en tip nepremičnine.</p>';
   for (const t of chosen) {
     const cells = a.byQuarterType.get(t) || [];
+    // A small area rarely fills a quarter, so its line falls back to whole years.
+    const sparse = cells.filter((c) => Number.isFinite(c.em)).length < cells.length / 2;
+    const years = a.years.map((y) => a.byYearType.get(y * 10 + t));
     lineChart($(`mini-${t}`), {
-      x: quarterNames,
-      series: [{ label: typeName(t), color: seriesColor(t), values: cells.map((c) => c.em), notes: cells.map((c) => `${count(c.n)} poslov`) }],
+      x: sparse ? yearNames : quarterNames,
+      series: [{
+        label: typeName(t),
+        color: seriesColor(t),
+        values: sparse ? years.map((c) => (c.nEm >= MIN_SAMPLE ? c.em : NaN)) : cells.map((c) => c.em),
+        notes: (sparse ? years.map((c) => c.nEm) : cells.map((c) => c.n)).map((n) => `${count(n)} poslov`),
+      }],
       format: perM2,
       formatAxis: compactAxis,
-      partialFrom,
+      partialFrom: sparse ? Infinity : partialFrom,
       height: many ? 140 : 190,
       label: `Mediana cene na m² po četrtletjih, ${typeName(t)}`,
     });
@@ -362,7 +429,6 @@ function renderCharts() {
   );
 
   // Index
-  const yearNames = a.years.map(yearLabel);
   const indexSeries = TYPE_IDS.map((t) => {
     const raw = a.years.map((y) => {
       const cell = a.byYearType.get(y * 10 + t);
@@ -427,6 +493,13 @@ const compactAxis = (v) => {
 };
 const moneyAxis = (v) => (v >= 1e9 ? `${(v / 1e9).toLocaleString('sl-SI', { maximumFractionDigits: 1 })} mrd` : `${Math.round(v / 1e6).toLocaleString('sl-SI')} mio`);
 
+function changeCell(change) {
+  if (!Number.isFinite(change)) return '<td class="num">–</td>';
+  const strength = Math.min(1, Math.abs(change) / 0.25);
+  const tone = change >= 0 ? 'var(--up)' : 'var(--down)';
+  return `<td class="num heat" style="--tone:${tone};--strength:${Math.round(strength * 62)}%">${percent(change)}</td>`;
+}
+
 function renderYoy() {
   const a = analysis;
   const years = a.years.slice(1);
@@ -436,11 +509,7 @@ function renderYoy() {
   }
   const cell = (t, y) => {
     const now = a.byYearType.get(y * 10 + t), prev = a.byYearType.get((y - 1) * 10 + t);
-    if (now.nEm < 10 || prev.nEm < 10) return '<td class="num">–</td>';
-    const change = now.em / prev.em - 1;
-    const strength = Math.min(1, Math.abs(change) / 0.25);
-    const tone = change >= 0 ? 'var(--up)' : 'var(--down)';
-    return `<td class="num heat" style="--tone:${tone};--strength:${Math.round(strength * 62)}%">${percent(change)}</td>`;
+    return changeCell(now.nEm < 10 || prev.nEm < 10 ? NaN : now.em / prev.em - 1);
   };
   $('c-yoy').innerHTML = `<table class="data yoy">
     <thead><tr><th>Tip</th>${years.map((y) => `<th class="num">${yearLabel(y)}</th>`).join('')}</tr></thead>
@@ -448,9 +517,25 @@ function renderYoy() {
   </table>`;
 }
 
+function renderLand() {
+  const bands = housesByLand(store, lists.base);
+  const rows = bands.filter((band) => band.n);
+  // With a land filter on, the peers would all have about the same land.
+  const landFiltered = state.minLand !== null || state.maxLand !== null;
+  $('c-land').innerHTML = rows.length ? `<table class="data">
+    <thead><tr><th>Zemljišče</th><th class="num">Posli</th><th class="num">Cena</th><th class="num">€/m²</th><th class="num">Proti podobnim</th></tr></thead>
+    <tbody>${rows.map((band) => `<tr><td>${band.label}</td><td class="num">${count(band.n)}</td><td class="num">${money(band.price)}</td><td class="num">${perM2(band.em).replace(' €/m²', '')}</td>${changeCell(landFiltered ? NaN : band.peers)}</tr>`).join('')}</tbody>
+  </table>` : '<p class="empty">V izboru ni hiš.</p>';
+  $('land-note').hidden = !rows.length || bands[bands.length - 1].n > 0;
+}
+
 function renderAreas() {
-  const names = state.level === 'o' ? store.meta.municipalities : store.meta.cadastral;
-  $('areas-title').textContent = state.level === 'o' ? 'Občine' : 'Katastrske občine';
+  const { municipalities, cadastral, cadastralMunicipality } = store.meta;
+  const names = state.level === 'o' ? municipalities : cadastral;
+  // With a municipality or one of its parts chosen, the list shows that municipality's parts.
+  const within = state.level === 'k' && state.area
+    ? (state.area.level === 'o' ? state.area.id : cadastralMunicipality[state.area.id]) : null;
+  $('areas-title').textContent = state.level === 'o' ? 'Občine' : `Katastrske občine${within ? `, ${municipalities[within]}` : ''}`;
   const columns = [
     ['n', 'Posli', count],
     ['em', '€/m²', (v) => perM2(v).replace(' €/m²', '')],
@@ -460,6 +545,7 @@ function renderAreas() {
   const rows = [];
   for (const [id, rec] of stats) {
     if (!names[id] || rec.n < MIN_SAMPLE) continue;
+    if (within && cadastralMunicipality[id] !== within) continue;
     rows.push({ id, name: names[id], rec });
   }
   const score = (r) => {
@@ -500,16 +586,17 @@ const tipRow = (label, value) => `<div class="tip-row"><span>${label}</span><b>$
 
 function hoverArea(level, id, event) {
   if (!level) { hideTip(); return; }
-  const names = level === 'o' ? store.meta.municipalities : store.meta.cadastral;
-  const rec = stats?.get(id);
+  // The numbers in stats belong to the level on show, which can lag a zoom by one render.
+  const rec = level === state.level ? stats?.get(id) : null;
   const body = rec ? [
     tipRow('Posli', count(rec.n)),
     tipRow('Mediana €/m²', perM2(metricValue(rec, 'em'))),
+    state.types.has(HOUSE) ? tipRow('Brez zemljišča', perM2(metricValue(rec, 'bm'))) : '',
     tipRow('Mediana cene', money(metricValue(rec, 'price'))),
     tipRow('Rast', percent(rec.growth)),
     tipRow('Cena / GURS', ratio(metricValue(rec, 'ratio'))),
   ].join('') : tipRow('Posli', '0');
-  showTip(`<div class="tip-title">${names[id] || ''}</div>${body}`, event.clientX, event.clientY);
+  showTip(`<div class="tip-title">${areaName({ level, id }) || ''}</div>${body}`, event.clientX, event.clientY);
 }
 
 const dealDate = (d, i) => `${d.day[i]}. ${(store.m[i] % 12) + 1}. ${store.firstYear + Math.floor(store.m[i] / 12)}`;
@@ -519,13 +606,21 @@ function dealPlace(d, i) {
   return [address, place && !address.startsWith(place) ? place : ''].filter(Boolean).join(', ') || store.meta.municipalities[store.o[i]] || '';
 }
 
+const squareMetres = (v) => `${v.toLocaleString('sl-SI', { maximumFractionDigits: 1, useGrouping: 'always' })} m²`;
+
 function dealFacts(d, i) {
+  const isLand = LAND_TYPES.has(store.t[i]);
+  const farm = d.farm[i] ? `, od tega ${squareMetres(d.farm[i])} kmetijsko in gozd` : '';
   const facts = [
     ['Pogodba', dealDate(d, i)],
     ['Cena', money(store.p[i])],
-    ['Površina', store.a[i] ? `${store.a[i].toLocaleString('sl-SI')} m²` : ''],
+    [isLand ? 'Površina' : 'Uporabna površina', store.a[i] ? squareMetres(store.a[i]) : ''],
+    ['Skupna površina', store.d[i] > store.a[i] ? squareMetres(store.d[i]) : ''],
+    ['Zemljišče', store.l[i] && !isLand ? squareMetres(store.l[i]) + farm : ''],
     ['Cena na m²', Number.isFinite(store.em[i]) ? perM2(store.em[i]) : ''],
+    ['Brez zemljišča', store.t[i] === HOUSE && Number.isFinite(store.bm[i]) ? `približno ${perM2(store.bm[i])}` : ''],
     ['Vrednost GURS', store.g[i] ? money(store.g[i]) : ''],
+    ['Od tega zemljišče', store.g[i] && store.h[i] && !isLand ? `${Math.round((store.h[i] / store.g[i]) * 100)} %` : ''],
     ['Cena / GURS', Number.isFinite(store.ratio[i]) ? ratio(store.ratio[i]) : ''],
     ['Leto izgradnje', store.b[i] || ''],
     ['Konstrukcija', store.c[i] ? store.meta.construction[store.c[i]] : ''],
@@ -554,7 +649,7 @@ async function hoverSpot(list, event) {
   const oneAddress = new Set(list.map((sale) => dealPlace(d, sale).toLowerCase())).size === 1;
   const title = `<div class="tip-title">${oneAddress ? dealPlace(d, i) : store.meta.municipalities[store.o[i]]}</div>`;
   if (list.length === 1) {
-    showTip(title + dealFacts(d, i).slice(0, 6).map(([label, value]) => tipRow(label, value)).join(''), event.clientX, event.clientY);
+    showTip(title + dealFacts(d, i).slice(0, TIP_FACTS).map(([label, value]) => tipRow(label, value)).join(''), event.clientX, event.clientY);
     return;
   }
   const rows = list.slice(0, TIP_DEALS).map((sale) => tipRow(
@@ -605,15 +700,17 @@ async function downloadCsv() {
   button.textContent = 'Pripravljam';
   const d = await loadDetails();
   const quote = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const rows = ['id_posla;datum;tip;obcina;ko;naselje;naslov;cena_eur;povrsina_m2;eur_m2;vrednost_gurs_eur;cena_gurs;leto_izgradnje;vrsta_posla;trznost'];
+  const rows = ['id_posla;datum;tip;obcina;ko;naselje;naslov;cena_eur;povrsina_m2;skupna_povrsina_m2;zemljisce_m2;kmetijsko_gozd_m2;eur_m2;eur_m2_brez_zemljisca;vrednost_gurs_eur;vrednost_zemljisca_gurs_eur;cena_gurs;leto_izgradnje;vrsta_posla;trznost'];
   for (const i of lists.sel) {
     const month = String((store.m[i] % 12) + 1).padStart(2, '0');
     const day = String(d.day[i]).padStart(2, '0');
     rows.push([
       d.id[i], `${store.firstYear + Math.floor(store.m[i] / 12)}-${month}-${day}`, typeName(store.t[i]),
       quote(store.meta.municipalities[store.o[i]]), quote(store.meta.cadastral[store.k[i]]),
-      quote(d.dict[d.place[i]]), quote(d.dict[d.address[i]]), store.p[i], store.a[i] || '',
-      Number.isFinite(store.em[i]) ? store.em[i].toFixed(2) : '', store.g[i] || '',
+      quote(d.dict[d.place[i]]), quote(d.dict[d.address[i]]), store.p[i], store.a[i] ? store.a[i].toFixed(1) : '',
+      store.d[i] ? store.d[i].toFixed(1) : '', store.l[i] || '', d.farm[i] || '',
+      Number.isFinite(store.em[i]) ? store.em[i].toFixed(2) : '',
+      Number.isFinite(store.bm[i]) ? store.bm[i].toFixed(2) : '', store.g[i] || '', store.g[i] ? store.h[i] : '',
       Number.isFinite(store.ratio[i]) ? store.ratio[i].toFixed(3) : '', store.b[i] || '',
       quote(KINDS[store.v[i]]), quote(MARKETS[store.r[i]]),
     ].join(';'));
@@ -644,7 +741,11 @@ async function start() {
     onHover: hoverArea,
     onSpot: hoverSpot,
     onLegend: renderLegend,
-    onArea: (level, id) => setArea({ level, id }, false),
+    onLevel: (level) => { state.level = level; changed(); },
+    onArea: (level, id) => {
+      setArea({ level, id }, false);
+      if (state.area) map.focusArea(state.area);   // a second click clears the choice and stays put
+    },
     onDeal: showDeal,
   });
   render();

@@ -14,6 +14,7 @@ const PAINT = {
 const SLOVENIA = [[13.37, 45.42], [16.61, 46.88]];
 const MAX_POINTS = 40000;
 const HIT_PX = 8;         // dots are tiny at low zoom, so the cursor only has to come close
+const KO_ZOOM = 9.8;      // from here a municipality fills the view, so its parts take over
 const CELL_PX = 3;       // heat grid resolution in screen pixels
 const BLUR_RADIUS = 4;    // box radius in cells; three passes approximate a Gaussian
 const BLUR_PASSES = 3;
@@ -50,6 +51,7 @@ export class SalesMap {
     this.view = null;
     this.ready = false;
     this.spots = new Map();
+    this.zoomLevel = 'o';
     this.canvas = document.createElement('canvas');
     this.canvas.width = this.canvas.height = 4;
     fetch('geo/slovenija.geojson').then((r) => r.json()).then((data) => {
@@ -85,9 +87,14 @@ export class SalesMap {
       }
     });
     this.map.on('moveend', () => {
+      // Only a crossing changes the level, so a level picked by hand stays while zooming.
+      const level = this.map.getZoom() >= KO_ZOOM ? 'k' : 'o';
+      const crossed = level !== this.zoomLevel;
+      this.zoomLevel = level;
       if (!this.view || !this.ready) return;
       if (this.view.state.mode === 'heat') this.drawHeat();
       if (this.view.state.mode === 'points') this.drawPoints();
+      if (crossed) this.handlers.onLevel(level);
     });
     this.bindPointer();
   }
@@ -266,17 +273,19 @@ export class SalesMap {
 
     const active = this.ids(state.level);
     const off = this.ids(inactive);
-    for (const id of [off.fill, off.line, off.focus]) visible(id, false);
-    for (const id of [active.fill, active.line, active.focus]) visible(id, true);
     visible('heat', state.mode === 'heat');
     visible('points', state.mode === 'points');
 
+    // The old level stays on show until the new one has arrived, so the map never goes empty.
     if (!this.loaded?.[state.level]) {
       const data = await this.regionData(state.level);
       map.getSource(active.source).setData(data);
       (this.loaded ||= {})[state.level] = true;
+      if (this.view !== view) return;
     }
 
+    for (const id of [off.fill, off.line, off.focus]) visible(id, false);
+    for (const id of [active.fill, active.line, active.focus]) visible(id, true);
     this.paintAreas();
     this.markSelected();
     if (state.mode === 'heat') this.drawHeat();
@@ -354,6 +363,7 @@ export class SalesMap {
   valueOf(metric, i) {
     const { store } = this;
     if (metric === 'em') return store.em[i];
+    if (metric === 'bm') return store.bm[i];
     if (metric === 'price') return store.p[i];
     if (metric === 'ratio') return store.ratio[i];
     return NaN;
