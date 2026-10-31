@@ -27,7 +27,7 @@ import pyarrow.csv as pacsv
 from pipeline.sources import VALUATION, fetch, municipalities
 
 OUT = Path("data/valuation")
-WORKERS = 6
+WORKERS = 3   # more than this makes the GURS server reset connections
 
 MEMBERS = {
     "stavba": {"EID_STAVBA": pa.int64(), "KO_SIFKO": pa.int32(), "STEV_ST": pa.int64(),

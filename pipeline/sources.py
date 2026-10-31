@@ -1,6 +1,7 @@
 """Access to the public GURS JGP download API (no registration needed)."""
 from __future__ import annotations
 
+import http.client
 import json
 import re
 import time
@@ -18,17 +19,23 @@ SALES = (127, 321)       # Kupoprodajni posli za območje Slovenije po letih
 VALUATION = (363, 362)   # Evidenca vrednotenja za območje občine
 
 COUNTRY = ("DRZAVA", 1)
+HEADERS = {"User-Agent": "kataster-cen (+https://github.com/uvampelj/trg-nepremicnin)"}
 
 
-def _get_json(url: str, tries: int = 4) -> dict | list:
+def _open(url: str, timeout: int):
+    return urllib.request.urlopen(urllib.request.Request(url, headers=HEADERS), timeout=timeout)
+
+
+def _get_json(url: str, tries: int = 6) -> dict | list:
     for attempt in range(tries):
         try:
-            with urllib.request.urlopen(url, timeout=60) as resp:
+            with _open(url, 60) as resp:
                 return json.load(resp)
         except OSError as error:
             if attempt == tries - 1 or getattr(error, "code", None) == 404:
                 raise
-            time.sleep(15 * (attempt + 1))
+            # The server resets connections under load and needs a real pause.
+            time.sleep(30 * (attempt + 1))
     raise AssertionError
 
 
@@ -58,13 +65,13 @@ def fetch(product: tuple[int, int], year: int | None = None, where: tuple[str, i
         try:
             expected = file_info(product, year, where)["size"]
             link = _get_json(_url(product, "file", where, year))["url"]
-            with urllib.request.urlopen(link, timeout=300) as resp:
+            with _open(link, 300) as resp:
                 data = resp.read()
             # A cut connection can end a stream early without raising anything.
             if len(data) != expected:
                 raise OSError(f"short download: {len(data)} of {expected} bytes")
             return data
-        except OSError:
+        except (OSError, http.client.HTTPException):
             if attempt == tries - 1:
                 raise
             time.sleep(20 * (attempt + 1))
