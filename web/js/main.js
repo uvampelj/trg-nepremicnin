@@ -9,6 +9,7 @@ import { hideTip, histogram, lineChart, showTip, stackedColumns, table } from '.
 const $ = (id) => document.getElementById(id);
 const seriesColor = (t) => `var(--s${t})`;
 const LAND_TYPES = new Set([3, 4, 5, 6]);
+const TIP_DEALS = 5;   // sales listed in the tooltip of a shared point
 
 let store, state, map, lists, stats, analysis;
 let stackBy = 'n';
@@ -495,19 +496,74 @@ function bindAreas() {
 
 /* Map callbacks --------------------------------------------------------- */
 
+const tipRow = (label, value) => `<div class="tip-row"><span>${label}</span><b>${value}</b></div>`;
+
 function hoverArea(level, id, event) {
   if (!level) { hideTip(); return; }
   const names = level === 'o' ? store.meta.municipalities : store.meta.cadastral;
   const rec = stats?.get(id);
-  const row = (label, value) => `<div class="tip-row"><span>${label}</span><b>${value}</b></div>`;
   const body = rec ? [
-    row('Posli', count(rec.n)),
-    row('Mediana €/m²', perM2(metricValue(rec, 'em'))),
-    row('Mediana cene', money(metricValue(rec, 'price'))),
-    row('Rast', percent(rec.growth)),
-    row('Cena / GURS', ratio(metricValue(rec, 'ratio'))),
-  ].join('') : row('Posli', '0');
+    tipRow('Posli', count(rec.n)),
+    tipRow('Mediana €/m²', perM2(metricValue(rec, 'em'))),
+    tipRow('Mediana cene', money(metricValue(rec, 'price'))),
+    tipRow('Rast', percent(rec.growth)),
+    tipRow('Cena / GURS', ratio(metricValue(rec, 'ratio'))),
+  ].join('') : tipRow('Posli', '0');
   showTip(`<div class="tip-title">${names[id] || ''}</div>${body}`, event.clientX, event.clientY);
+}
+
+const dealDate = (d, i) => `${d.day[i]}. ${(store.m[i] % 12) + 1}. ${store.firstYear + Math.floor(store.m[i] / 12)}`;
+
+function dealPlace(d, i) {
+  const place = d.dict[d.place[i]], address = d.dict[d.address[i]];
+  return [address, place && !address.startsWith(place) ? place : ''].filter(Boolean).join(', ') || store.meta.municipalities[store.o[i]] || '';
+}
+
+function dealFacts(d, i) {
+  const facts = [
+    ['Pogodba', dealDate(d, i)],
+    ['Cena', money(store.p[i])],
+    ['Površina', store.a[i] ? `${store.a[i].toLocaleString('sl-SI')} m²` : ''],
+    ['Cena na m²', Number.isFinite(store.em[i]) ? perM2(store.em[i]) : ''],
+    ['Vrednost GURS', store.g[i] ? money(store.g[i]) : ''],
+    ['Cena / GURS', Number.isFinite(store.ratio[i]) ? ratio(store.ratio[i]) : ''],
+    ['Leto izgradnje', store.b[i] || ''],
+    ['Konstrukcija', store.c[i] ? store.meta.construction[store.c[i]] : ''],
+    ['Posel', KINDS[store.v[i]]],
+    ['Tržnost', MARKETS[store.r[i]]],
+  ];
+  return facts.filter(([, value]) => value);
+}
+
+function dealWord(n) {
+  const tail = n % 100;
+  if (tail === 1) return 'posel';
+  if (tail === 2) return 'posla';
+  return tail === 3 || tail === 4 ? 'posli' : 'poslov';
+}
+
+let hoveredSpot = null;
+
+async function hoverSpot(list, event) {
+  hoveredSpot = list;
+  if (!list) { hideTip(); return; }
+  const d = await loadDetails();
+  if (hoveredSpot !== list) return;
+  const [i] = list;
+  // Coordinates are rounded to about 10 m, so one dot can hold neighbouring house numbers.
+  const oneAddress = new Set(list.map((sale) => dealPlace(d, sale).toLowerCase())).size === 1;
+  const title = `<div class="tip-title">${oneAddress ? dealPlace(d, i) : store.meta.municipalities[store.o[i]]}</div>`;
+  if (list.length === 1) {
+    showTip(title + dealFacts(d, i).slice(0, 6).map(([label, value]) => tipRow(label, value)).join(''), event.clientX, event.clientY);
+    return;
+  }
+  const rows = list.slice(0, TIP_DEALS).map((sale) => tipRow(
+    [dealDate(d, sale), oneAddress ? '' : d.dict[d.address[sale]]].filter(Boolean).join(', '),
+    money(store.p[sale]),
+  ));
+  if (list.length > TIP_DEALS) rows.push(tipRow('Starejši', `še ${count(list.length - TIP_DEALS)}`));
+  const sub = `<div class="tip-sub">${count(list.length)} ${dealWord(list.length)} na tej točki. Kliknite za podrobnosti.</div>`;
+  showTip(title + sub + rows.join(''), event.clientX, event.clientY);
 }
 
 function renderLegend(legend) {
@@ -524,30 +580,23 @@ function renderLegend(legend) {
   host.innerHTML = `<h4>${legend.title}</h4>${scale}${legend.note ? `<p>${legend.note}</p>` : ''}`;
 }
 
-async function showDeal(i, lngLat) {
+async function showDeal(list, at = 0) {
   const d = await loadDetails();
-  const year = store.firstYear + Math.floor(store.m[i] / 12);
-  const month = (store.m[i] % 12) + 1;
-  const parts = [];
-  const add = (label, value) => { if (value) parts.push(`<dt>${label}</dt><dd>${value}</dd>`); };
-  add('Pogodba', `${d.day[i]}. ${month}. ${year}`);
-  add('Cena', money(store.p[i]));
-  add('Površina', store.a[i] ? `${store.a[i].toLocaleString('sl-SI')} m²` : '');
-  add('Cena na m²', Number.isFinite(store.em[i]) ? perM2(store.em[i]) : '');
-  add('Vrednost GURS', store.g[i] ? money(store.g[i]) : '');
-  add('Cena / GURS', Number.isFinite(store.ratio[i]) ? ratio(store.ratio[i]) : '');
-  add('Leto izgradnje', store.b[i] || '');
-  add('Konstrukcija', store.meta.construction[store.c[i]] && store.c[i] ? store.meta.construction[store.c[i]] : '');
-  add('Posel', KINDS[store.v[i]]);
-  add('Tržnost', MARKETS[store.r[i]]);
-  const place = d.dict[d.place[i]], address = d.dict[d.address[i]];
-  const heading = [address, place && !address.startsWith(place) ? place : ''].filter(Boolean).join(', ');
+  const i = list[at];
+  const parts = dealFacts(d, i).map(([label, value]) => `<dt>${label}</dt><dd>${value}</dd>`);
   const newBuild = store.f[i] & 1 ? ' · novogradnja' : '';
-  map.popup(lngLat, `<div class="deal">
+  const pager = list.length > 1 ? `<div class="deal-pager">
+    <button type="button" data-step="-1" aria-label="Prejšnji posel">‹</button>
+    <span>${at + 1} od ${count(list.length)}</span>
+    <button type="button" data-step="1" aria-label="Naslednji posel">›</button></div>` : '';
+  const box = map.popup([store.lon[i], store.lat[i]], `<div class="deal">
     <p class="eyebrow">${typeName(store.t[i])}${newBuild}</p>
-    <h4>${heading || store.meta.municipalities[store.o[i]] || ''}</h4>
+    <h4>${dealPlace(d, i)}</h4>
     <p class="deal-sub">${store.meta.municipalities[store.o[i]] || ''}${store.meta.cadastral[store.k[i]] ? ` · k. o. ${store.meta.cadastral[store.k[i]]}` : ''}</p>
-    <dl>${parts.join('')}</dl></div>`);
+    <dl>${parts.join('')}</dl>${pager}</div>`);
+  for (const button of box.querySelectorAll('[data-step]')) {
+    button.addEventListener('click', () => showDeal(list, (at + Number(button.dataset.step) + list.length) % list.length));
+  }
 }
 
 async function downloadCsv() {
@@ -593,6 +642,7 @@ async function start() {
   map = new SalesMap('map', store, {
     theme: themeNow(),
     onHover: hoverArea,
+    onSpot: hoverSpot,
     onLegend: renderLegend,
     onArea: (level, id) => setArea({ level, id }, false),
     onDeal: showDeal,

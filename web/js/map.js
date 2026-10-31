@@ -1,6 +1,6 @@
 // MapLibre map with three views of the same selection: a kernel-smoothed heat surface,
 // area polygons and individual sales.
-import { fromMercator, metricValue, quantile } from './store.js';
+import { fromMercator, median, metricValue, quantile } from './store.js';
 import { METRICS, classes, count, lookup, ramp } from './scale.js';
 
 const STYLES = {
@@ -13,7 +13,8 @@ const PAINT = {
 };
 const SLOVENIA = [[13.37, 45.42], [16.61, 46.88]];
 const MAX_POINTS = 40000;
-const CELL_PX = 3;        // heat grid resolution in screen pixels
+const HIT_PX = 8;         // dots are tiny at low zoom, so the cursor only has to come close
+const CELL_PX = 3;       // heat grid resolution in screen pixels
 const BLUR_RADIUS = 4;    // box radius in cells; three passes approximate a Gaussian
 const BLUR_PASSES = 3;
 const MIN_SUPPORT = 1.15; // a pixel needs more than one sale nearby to be coloured
@@ -48,6 +49,7 @@ export class SalesMap {
     this.geo = {};
     this.view = null;
     this.ready = false;
+    this.spots = new Map();
     this.canvas = document.createElement('canvas');
     this.canvas.width = this.canvas.height = 4;
     fetch('geo/slovenija.geojson').then((r) => r.json()).then((data) => {
@@ -87,11 +89,41 @@ export class SalesMap {
       if (this.view.state.mode === 'heat') this.drawHeat();
       if (this.view.state.mode === 'points') this.drawPoints();
     });
+    this.bindPointer();
+  }
+
+  // Listeners outlive setStyle, so they are bound once rather than on every theme change.
+  bindPointer() {
+    const { map } = this;
+    for (const level of ['o', 'k']) {
+      const { fill } = this.ids(level);
+      map.on('mousemove', fill, (e) => this.hoverArea(level, e));
+      map.on('mouseleave', fill, () => this.leaveArea());
+      map.on('click', fill, (e) => {
+        if (!this.pointsOn()) this.handlers.onArea(level, e.features[0].id);
+      });
+    }
+    map.on('mousemove', (e) => {
+      if (this.pointsOn()) this.hoverSpot(e);
+    });
+    map.on('click', (e) => {
+      const spot = this.pointsOn() ? this.spotAt(e.point) : null;
+      if (!spot) return;
+      this.opened = spot;
+      this.handlers.onSpot(null);
+      this.handlers.onDeal(spot);
+    });
+    for (const type of ['mouseout', 'movestart']) map.on(type, () => this.handlers.onSpot(null));
+  }
+
+  pointsOn() {
+    return this.ready && this.view?.state.mode === 'points';
   }
 
   setTheme(theme) {
     this.theme = theme;
     this.ready = false;
+    this.loaded = null;   // a new style starts with empty sources
     this.map.setStyle(STYLES[theme]);
   }
 
@@ -145,12 +177,6 @@ export class SalesMap {
         },
         layout: { visibility: 'none' },
       });
-      map.on('mousemove', ids.fill, (e) => this.hoverArea(level, e));
-      map.on('mouseleave', ids.fill, () => this.leaveArea());
-      map.on('click', ids.fill, (e) => {
-        if (this.view?.state.mode === 'points' && map.queryRenderedFeatures(e.point, { layers: ['points'] }).length) return;
-        this.handlers.onArea(level, e.features[0].id);
-      });
     }
 
     map.addSource('border', { type: 'geojson', data: 'geo/slovenija.geojson' });
@@ -170,9 +196,6 @@ export class SalesMap {
       },
       layout: { visibility: 'none' },
     });
-    map.on('mouseenter', 'points', () => { map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', 'points', () => { map.getCanvas().style.cursor = ''; });
-    map.on('click', 'points', (e) => this.handlers.onDeal(e.features[0].properties.i, e.lngLat));
 
     this.ready = true;
     if (this.view) this.update(this.view);
@@ -193,6 +216,7 @@ export class SalesMap {
   }
 
   hoverArea(level, e) {
+    if (this.pointsOn()) return;
     const id = e.features[0].id;
     const ids = this.ids(level);
     if (this.hovered && (this.hovered.id !== id || this.hovered.source !== ids.source)) {
@@ -205,10 +229,30 @@ export class SalesMap {
   }
 
   leaveArea() {
-    if (this.hovered) this.map.setFeatureState(this.hovered, { hover: false });
+    if (!this.hovered) return;
+    this.map.setFeatureState(this.hovered, { hover: false });
     this.hovered = null;
     this.map.getCanvas().style.cursor = '';
     this.handlers.onHover(null);
+  }
+
+  // The nearest dot under the cursor, as the list of sales it stands for.
+  spotAt({ x, y }) {
+    let nearest = null, best = Infinity;
+    const box = [[x - HIT_PX, y - HIT_PX], [x + HIT_PX, y + HIT_PX]];
+    for (const feature of this.map.queryRenderedFeatures(box, { layers: ['points'] })) {
+      const at = this.map.project(feature.geometry.coordinates);
+      const distance = (at.x - x) ** 2 + (at.y - y) ** 2;
+      if (distance < best) { best = distance; nearest = feature; }
+    }
+    return (nearest && this.spots.get(nearest.properties.i)) || null;
+  }
+
+  hoverSpot(e) {
+    const spot = this.spotAt(e.point);
+    this.map.getCanvas().style.cursor = spot ? 'pointer' : '';
+    const pinned = spot === this.opened && this.activePopup?.isOpen();
+    this.handlers.onSpot(pinned ? null : spot, e.originalEvent);
   }
 
   // view: { state, list, stats, }
@@ -431,22 +475,32 @@ export class SalesMap {
     const metric = METRICS[state.metric].heat && state.metric !== 'count' ? state.metric : 'em';
     const bounds = map.getBounds();
     const [w, s, e, n] = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()];
-    const inView = [];
+
+    // Sales in one building share a coordinate, so one dot stands for all of them.
+    const grouped = new Map();
+    const values = [];
+    let inView = 0;
     for (let j = 0; j < list.length; j++) {
       const i = list[j];
-      if (store.lon[i] >= w && store.lon[i] <= e && store.lat[i] >= s && store.lat[i] <= n) inView.push(i);
-    }
-    const step = Math.max(1, inView.length / MAX_POINTS);
-    const values = [];
-    for (const i of inView) {
+      if (!(store.lon[i] >= w && store.lon[i] <= e && store.lat[i] >= s && store.lat[i] <= n)) continue;
+      inView++;
+      const key = `${store.lon[i]},${store.lat[i]}`;
+      const spot = grouped.get(key);
+      if (spot) spot.push(i); else grouped.set(key, [i]);
       const v = this.valueOf(metric, i);
       if (v === v) values.push(v);
     }
+
+    const spots = [...grouped.values()];
+    const step = Math.max(1, spots.length / MAX_POINTS);
     const scale = classes(metric, values, this.theme);
     const features = [];
-    for (let at = 0; at < inView.length; at += step) {
-      const i = inView[Math.floor(at)];
-      const v = this.valueOf(metric, i);
+    this.spots = new Map();
+    for (let at = 0; at < spots.length; at += step) {
+      const spot = spots[Math.floor(at)].sort((a, b) => store.m[b] - store.m[a]);
+      const [i] = spot;
+      const v = median(spot.map((sale) => this.valueOf(metric, sale)).filter((value) => value === value));
+      this.spots.set(i, spot);
       features.push({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [store.lon[i], store.lat[i]] },
@@ -456,14 +510,15 @@ export class SalesMap {
     map.getSource('points').setData({ type: 'FeatureCollection', features });
     const legend = this.areaLegend(metric, scale);
     legend.note = step > 1
-      ? `Prikazanih ${count(features.length)} od ${count(inView.length)} poslov. Približajte.`
-      : `${count(inView.length)} poslov v pogledu. Kliknite točko.`;
+      ? `Prikazanih ${count(features.length)} od ${count(spots.length)} lokacij. Približajte.`
+      : `${count(inView)} poslov v pogledu. Kliknite točko.`;
     this.handlers.onLegend(legend);
   }
 
   popup(lngLat, html) {
     this.activePopup?.remove();
     this.activePopup = new maplibregl.Popup({ maxWidth: '300px', closeButton: true }).setLngLat(lngLat).setHTML(html).addTo(this.map);
+    return this.activePopup.getElement();
   }
 
   resize() {

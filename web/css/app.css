@@ -273,6 +273,29 @@ a { color: inherit; }
 .deal dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; }
 .deal dt { color: var(--ink-3); font-size: 12px; }
 .deal dd { text-align: right; font-variant-numeric: tabular-nums; }
+.deal-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.deal-pager button {
+  width: 30px;
+  height: 26px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.deal-pager button:hover { background: var(--line); }
 
 /* Analysis rail --------------------------------------------------------- */
 
@@ -373,6 +396,7 @@ a { color: inherit; }
   pointer-events: none;
 }
 .tip-title { font-weight: 600; margin-bottom: 3px; }
+.tip-sub { color: var(--ink-2); margin-bottom: 4px; }
 .tip-row { display: flex; align-items: center; gap: 6px; }
 .tip-row i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .tip-row span { color: var(--ink-2); }
