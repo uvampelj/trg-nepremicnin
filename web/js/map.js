@@ -1,7 +1,7 @@
 // MapLibre map with three views of the same selection: a kernel-smoothed heat surface,
 // area polygons and individual sales.
 import { fromMercator, metricValue, quantile } from './store.js';
-import { METRICS, classes, lookup, ramp } from './scale.js';
+import { METRICS, classes, count, lookup, ramp } from './scale.js';
 
 const STYLES = {
   light: 'https://tiles.openfreemap.org/styles/positron',
@@ -456,8 +456,8 @@ export class SalesMap {
     map.getSource('points').setData({ type: 'FeatureCollection', features });
     const legend = this.areaLegend(metric, scale);
     legend.note = step > 1
-      ? `Prikazanih ${features.length.toLocaleString('sl-SI')} od ${inView.length.toLocaleString('sl-SI')} poslov. Približajte.`
-      : `${inView.length.toLocaleString('sl-SI')} poslov v pogledu. Kliknite točko.`;
+      ? `Prikazanih ${count(features.length)} od ${count(inView.length)} poslov. Približajte.`
+      : `${count(inView.length)} poslov v pogledu. Kliknite točko.`;
     this.handlers.onLegend(legend);
   }
 

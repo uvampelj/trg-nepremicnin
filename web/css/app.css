@@ -213,7 +213,7 @@ a { color: inherit; }
 
 /* Map overlays ---------------------------------------------------------- */
 
-.map-bar { position: absolute; top: 10px; left: 10px; right: 52px; display: flex; flex-wrap: wrap; gap: 7px; pointer-events: none; }
+.map-bar { position: absolute; z-index: 3; top: 10px; left: 10px; right: 52px; display: flex; flex-wrap: wrap; gap: 7px; pointer-events: none; }
 .map-bar .segment { pointer-events: auto; box-shadow: var(--shadow); border-color: transparent; }
 .map-hint {
   flex: 0 1 100%;
@@ -257,6 +257,7 @@ a { color: inherit; }
 @keyframes breathe { 50% { opacity: 0.4; } }
 
 .maplibregl-ctrl-attrib, .maplibregl-ctrl-group { font-family: var(--sans); }
+.maplibregl-popup { z-index: 4; }
 .maplibregl-popup-content {
   background: var(--surface);
   color: var(--ink);
