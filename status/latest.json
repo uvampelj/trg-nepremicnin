@@ -1,17 +1,67 @@
 {
  "summary": {
-  "generated": "2026-11-01T10:47:04Z",
+  "generated": "2026-11-01T12:03:13Z",
   "etnDate": "20261101",
   "evDate": "20261031",
   "lastEntry": "20261002",
-  "firstYear": 2020,
-  "lastMonth": 81,
-  "sales": 184602,
-  "salesWithValue": 170611,
-  "salesWithoutCoordinates": 412,
-  "rowsInEtn": 218825
+  "firstYear": 2010,
+  "lastMonth": 201,
+  "sales": 456556,
+  "salesWithValue": 401773,
+  "salesWithoutCoordinates": 5277,
+  "rowsInEtn": 545032
  },
  "sources": {
+  "2010": {
+   "name": "ETN_SLO_2010_KPP_20261101.zip",
+   "size": 2795323,
+   "date": "20261101"
+  },
+  "2011": {
+   "name": "ETN_SLO_2011_KPP_20261101.zip",
+   "size": 3035131,
+   "date": "20261101"
+  },
+  "2012": {
+   "name": "ETN_SLO_2012_KPP_20261101.zip",
+   "size": 3054608,
+   "date": "20261101"
+  },
+  "2013": {
+   "name": "ETN_SLO_2013_KPP_20261101.zip",
+   "size": 2493984,
+   "date": "20261101"
+  },
+  "2014": {
+   "name": "ETN_SLO_2014_KPP_20261101.zip",
+   "size": 3150695,
+   "date": "20261101"
+  },
+  "2015": {
+   "name": "ETN_SLO_2015_KPP_20261101.zip",
+   "size": 2757741,
+   "date": "20261101"
+  },
+  "2016": {
+   "name": "ETN_SLO_2016_KPP_20261101.zip",
+   "size": 3157509,
+   "date": "20261101"
+  },
+  "2017": {
+   "name": "ETN_SLO_2017_KPP_20261101.zip",
+   "size": 3406290,
+   "date": "20261101"
+  },
+  "2018": {
+   "name": "ETN_SLO_2018_KPP_20261101.zip",
+   "size": 3257505,
+   "date": "20261101"
+  },
+  "2019": {
+   "name": "ETN_SLO_2019_KPP_20261101.zip",
+   "size": 3722108,
+   "date": "20261101"
+  },
   "2020": {
    "name": "ETN_SLO_2020_KPP_20261101.zip",
    "size": 3376238,
