@@ -1,8 +1,9 @@
 {
  "summary": {
-  "generated": "2026-10-31T08:35:35Z",
-  "etnDate": "20261025",
+  "generated": "2026-11-01T10:47:04Z",
+  "etnDate": "20261101",
   "evDate": "20261031",
+  "lastEntry": "20261002",
   "firstYear": 2020,
   "lastMonth": 81,
   "sales": 184602,
@@ -12,39 +13,39 @@
  },
  "sources": {
   "2020": {
-   "name": "ETN_SLO_2020_KPP_20261025.zip",
+   "name": "ETN_SLO_2020_KPP_20261101.zip",
    "size": 3376238,
-   "date": "20261025"
+   "date": "20261101"
   },
   "2021": {
-   "name": "ETN_SLO_2021_KPP_20261025.zip",
+   "name": "ETN_SLO_2021_KPP_20261101.zip",
    "size": 3770295,
-   "date": "20261025"
+   "date": "20261101"
   },
   "2022": {
-   "name": "ETN_SLO_2022_KPP_20261025.zip",
+   "name": "ETN_SLO_2022_KPP_20261101.zip",
    "size": 3811575,
-   "date": "20261025"
+   "date": "20261101"
   },
   "2023": {
-   "name": "ETN_SLO_2023_KPP_20261025.zip",
+   "name": "ETN_SLO_2023_KPP_20261101.zip",
    "size": 3238671,
-   "date": "20261025"
+   "date": "20261101"
   },
   "2024": {
-   "name": "ETN_SLO_2024_KPP_20261025.zip",
+   "name": "ETN_SLO_2024_KPP_20261101.zip",
    "size": 2602081,
-   "date": "20261025"
+   "date": "20261101"
   },
   "2025": {
-   "name": "ETN_SLO_2025_KPP_20261025.zip",
+   "name": "ETN_SLO_2025_KPP_20261101.zip",
    "size": 3182184,
-   "date": "20261025"
+   "date": "20261101"
   },
   "2026": {
-   "name": "ETN_SLO_2026_KPP_20261025.zip",
+   "name": "ETN_SLO_2026_KPP_20261101.zip",
    "size": 2407526,
-   "date": "20261025"
+   "date": "20261101"
   },
   "valuation": {
    "name": "EV_MUNICIPAL_20261031",
