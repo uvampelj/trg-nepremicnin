@@ -1,6 +1,6 @@
 # Kataster cen
 
-Interaktivni zemljevid prodanih stanovanj, hiš in zemljišč v Sloveniji od leta 2020.
+Interaktivni zemljevid prodanih stanovanj, hiš in zemljišč v Sloveniji od leta 2010.
 
 **Stran:** https://uvampelj.github.io/trg-nepremicnin/
 

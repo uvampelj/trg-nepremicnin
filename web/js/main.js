@@ -1,5 +1,5 @@
 import {
-  HOUSE, KINDS, MARKETS, MIN_SAMPLE, TYPE_IDS, analyse, defaultState, housesByLand, loadDetails, loadStore,
+  HOUSE, KINDS, MARKETS, MIN_SAMPLE, TYPE_IDS, analyse, defaultState, housesByLand, loadDetails, loadOlder, loadStore,
   median, metricValue, quarterLabel, regions, select,
 } from './store.js';
 import { METRICS, count, money, percent, perM2, ratio } from './scale.js';
@@ -194,7 +194,11 @@ function buildControls() {
 
   rangePair('y0', 'y1', store.firstYear, store.lastYear, (low, high) => { state.y0 = low; state.y1 = high; });
   rangePair('b0', 'b1', store.builtMin, store.builtMax, (low, high) => { state.b0 = low; state.b1 = high; });
-  $('year-marks').innerHTML = Array.from({ length: store.lastYear - store.firstYear + 1 }, (_, i) => `<span>${String(store.firstYear + i).slice(2)}</span>`).join('');
+  // Every second year fits the track, counted back so the newest always has its label.
+  $('year-marks').innerHTML = Array.from({ length: store.lastYear - store.firstYear + 1 }, (_, i) => {
+    const year = store.firstYear + i;
+    return `<span>${(store.lastYear - year) % 2 ? '' : String(year).slice(2)}</span>`;
+  }).join('');
   $('built-marks').innerHTML = `<span>do ${store.builtMin}</span><span>${store.builtMax}</span>`;
   $('play').addEventListener('click', togglePlay);
 
@@ -295,10 +299,16 @@ function syncControls() {
   chip.textContent = state.area ? `${areaName(state.area)} ×` : '';
 
   const classesChosen = new Set([...state.types].map((t) => (LAND_TYPES.has(t) ? t : 0)));
+  const perArea = ['em', 'bm', 'growth'].includes(state.metric);
+  const mixed = perArea && classesChosen.size > 1;
   const hint = $('map-hint');
-  hint.hidden = !(classesChosen.size > 1 && ['em', 'bm', 'growth'].includes(state.metric));
-  hint.textContent = 'Izbrani tipi imajo različne cenovne ravni. €/m² primerjajte znotraj enega tipa.';
+  hint.hidden = !mixed && !(perArea && housesBeforeArea());
+  hint.textContent = mixed
+    ? 'Izbrani tipi imajo različne cenovne ravni. €/m² primerjajte znotraj enega tipa.'
+    : `Hiše imajo €/m² šele od leta ${store.meta.houseAreaFrom}. Za starejša leta izberite kazalnik Cena.`;
 }
+
+const housesBeforeArea = () => state.types.has(HOUSE) && state.y0 < store.meta.houseAreaFrom;
 
 function setArea(area, focus) {
   const same = state.area && area && state.area.level === area.level && state.area.id === area.id;
@@ -346,7 +356,28 @@ function changed() {
   });
 }
 
+let olderLoading = false;
+
+async function ensureOlder() {
+  if (store.older || olderLoading || state.y0 >= store.meta.recentFrom) return;
+  olderLoading = true;
+  const overlay = $('loading');
+  overlay.querySelector('span').textContent = 'Nalagam starejše posle';
+  overlay.hidden = false;
+  try {
+    await loadOlder(store);
+    overlay.hidden = true;
+    changed();
+  } catch (error) {
+    console.error(error);
+    overlay.querySelector('span').textContent = 'Starejših poslov ni bilo mogoče naložiti. Osvežite stran.';
+  } finally {
+    olderLoading = false;
+  }
+}
+
 function render() {
+  ensureOlder();
   lists = select(store, state);
   analysis = analyse(store, state, lists);
   stats = regions(store, state, lists.map, state.level);
@@ -435,7 +466,7 @@ function renderCharts() {
     const base = raw.find(Number.isFinite);
     return { label: typeName(t), color: seriesColor(t), values: raw.map((v) => (v / base) * 100), dim: !state.types.has(t) };
   }).filter((s) => s.values.some(Number.isFinite));
-  $('index-sub').textContent = `Mediana €/m², prvo leto izbora = 100. ${state.types.size < TYPE_IDS.length ? 'Neizbrani tipi so zbledeli.' : ''}`;
+  $('index-sub').textContent = `Mediana €/m², prvo leto izbora = 100. ${state.types.size < TYPE_IDS.length ? 'Neizbrani tipi so zbledeli.' : ''}${state.y0 < store.meta.houseAreaFrom ? ` Hiše se začnejo z letom ${store.meta.houseAreaFrom}.` : ''}`;
   const indexFormat = (v) => Math.round(v).toLocaleString('sl-SI');
   lineChart($('c-index'), { x: yearNames, series: indexSeries, format: indexFormat, baseline: 100, height: 200, label: 'Indeks cen po tipih' });
   document.querySelector('#card-index .tabular').innerHTML = table(
@@ -609,10 +640,12 @@ const squareMetres = (v) => `${v.toLocaleString('sl-SI', { maximumFractionDigits
 function dealFacts(d, i) {
   const isLand = LAND_TYPES.has(store.t[i]);
   const farm = d.farm[i] ? `, od tega ${squareMetres(d.farm[i])} kmetijsko in gozd` : '';
+  const soldAreaOnly = store.t[i] === HOUSE && store.firstYear + Math.floor(store.m[i] / 12) < store.meta.houseAreaFrom;
+  const areaLabel = isLand ? 'Površina' : soldAreaOnly ? 'Prodana površina' : 'Uporabna površina';
   const facts = [
     ['Pogodba', dealDate(d, i)],
     ['Cena', money(store.p[i])],
-    [isLand ? 'Površina' : 'Uporabna površina', store.a[i] ? squareMetres(store.a[i]) : ''],
+    [areaLabel, store.a[i] ? squareMetres(store.a[i]) : ''],
     ['Skupna površina', store.d[i] > store.a[i] ? squareMetres(store.d[i]) : ''],
     ['Zemljišče', store.l[i] && !isLand ? squareMetres(store.l[i]) + farm : ''],
     ['Cena na m²', Number.isFinite(store.em[i]) ? perM2(store.em[i]) : ''],
@@ -641,7 +674,7 @@ let hoveredSpot = null;
 async function hoverSpot(list, event) {
   hoveredSpot = list;
   if (!list) { hideTip(); return; }
-  const d = await loadDetails();
+  const d = await loadDetails(store);
   if (hoveredSpot !== list) return;
   const [i] = list;
   // Coordinates are rounded to about 10 m, so one dot can hold neighbouring house numbers.
@@ -675,7 +708,7 @@ function renderLegend(legend) {
 }
 
 async function showDeal(list, at = 0) {
-  const d = await loadDetails();
+  const d = await loadDetails(store);
   const i = list[at];
   const parts = dealFacts(d, i).map(([label, value]) => `<dt>${label}</dt><dd>${value}</dd>`);
   const newBuild = store.f[i] & 1 ? ' · novogradnja' : '';
@@ -697,7 +730,7 @@ async function downloadCsv() {
   const button = $('download');
   button.disabled = true;
   button.textContent = 'Pripravljam';
-  const d = await loadDetails();
+  const d = await loadDetails(store);
   const quote = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const rows = ['id_posla;datum;tip;obcina;ko;naselje;naslov;cena_eur;povrsina_m2;skupna_povrsina_m2;zemljisce_m2;kmetijsko_gozd_m2;eur_m2;eur_m2_brez_zemljisca;vrednost_gurs_eur;vrednost_zemljisca_gurs_eur;cena_gurs;leto_izgradnje;vrsta_posla;trznost;vpis_etn'];
   for (const i of lists.sel) {

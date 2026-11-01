@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Kataster cen</title>
-  <meta name="description" content="Interaktivni zemljevid prodanih stanovanj, hiš in zemljišč v Sloveniji od leta 2020: cene na m², rast, promet in razmerje do posplošene vrednosti GURS.">
+  <meta name="description" content="Interaktivni zemljevid prodanih stanovanj, hiš in zemljišč v Sloveniji od leta 2010: cene na m², rast, promet in razmerje do posplošene vrednosti GURS.">
   <meta name="color-scheme" content="light dark">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23191814'/%3E%3Ccircle cx='16' cy='16' r='8' fill='none' stroke='%23f0743f' stroke-width='2.5'/%3E%3Cpath d='M16 3v9M16 20v9M3 16h9M20 16h9' stroke='%23f4f1e8' stroke-width='2.5'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -28,7 +28,7 @@
         <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><circle cx="16" cy="16" r="8.5" fill="none" stroke="var(--accent)" stroke-width="2.4"/><path d="M16 2v10M16 20v10M2 16h10M20 16h10" stroke="currentColor" stroke-width="2.4"/></svg>
         <span>Kataster cen</span>
       </a>
-      <p class="tagline">Prodane nepremičnine v Sloveniji od leta 2020</p>
+      <p class="tagline">Prodane nepremičnine v Sloveniji od leta 2010</p>
       <p class="stamp" id="stamp"></p>
       <div class="top-actions">
         <button class="ghost" id="open-method" type="button">Metodologija</button>
@@ -245,7 +245,7 @@
     <p>GURS izvoze osvežuje tedensko. Stran vsak dan preveri, ali je izšla nova različica posla, in se ob novi različici sama obnovi. Vrednosti se osvežijo enkrat tedensko.</p>
 
     <h3>En posel, ena točka</h3>
-    <p>ETN pozna ceno celotnega posla, ne posamezne nepremičnine, zato je vsak posel obravnavan kot celota. Upoštevani so posli s pogodbo, sklenjeno od 1. 1. 2020 naprej.</p>
+    <p>ETN pozna ceno celotnega posla, ne posamezne nepremičnine, zato je vsak posel obravnavan kot celota. Upoštevani so posli s pogodbo, sklenjeno od 1. 1. 2010 naprej. Privzeto so prikazana leta od 2020, starejša izberete z drsnikom Leto pogodbe.</p>
     <ul>
       <li><b>Stanovanje ali hiša:</b> posel vsebuje stanovanje ali hišo, lahko s pripadajočo garažo, parkirnim mestom, shrambo ali zemljiščem. Cena teh pripadajočih delov je vključena, ker je ETN ne loči.</li>
       <li><b>Zemljišče:</b> posel brez stavb. Skupina je določena po prevladujoči površini: stavbna (zemljišča za gradnjo stavb), kmetijska, gozdna, druga (ceste, pripadajoča in neplodna zemljišča).</li>
@@ -277,6 +277,17 @@
       <li><b>Drug posel:</b> ob preverjanju ni bilo ugotovljeno, da posel izpolnjuje pogoje za tržno ceno.</li>
       <li><b>Neopredeljen:</b> glavnega predmeta prodaje ni mogoče nedvoumno določiti, zato cene ni mogoče pripisati določeni nepremičnini.</li>
       <li><b>V preverjanju:</b> oznaka iz šifranta ETN za posle, ki jih GURS še ni razvrstil. Pravilnik je ne opredeljuje posebej.</li>
+      <li><b>Brez oznake (do 2014):</b> oznaka te strani, ne GURS. Vsi posli do leta 2014 so v ETN neopredeljeni, ker tržnost zanje ni bila določena.</li>
+    </ul>
+
+    <h3>Starejša leta</h3>
+    <p>Podatki pred letom 2014 niso povsem primerljivi z novejšimi, zato jih je treba brati previdno. Leta 2007–2009 so v ETN nepopolna, zato jih stran ne prikazuje.</p>
+    <ul>
+      <li><b>Podvojeni posli:</b> ista prodaja je lahko v ETN sporočena dvakrat, v letih 2010–2013 približno vsaka sedma. Stran obdrži en zapis, kadar se ujemajo glavna nepremičnina, datum pogodbe in cena. Prodaje deleža ostanejo, ker lahko dva solastnika isti dan prodata vsak svoj del.</li>
+      <li><b>Hiše:</b> pred letom 2014 ETN večinoma nima uporabne površine, prodana površina pa je približno poldrugič večja. €/m² bi bil zato lažno nizek, zato ga stran za te hiše ne računa. Na voljo so cena, število poslov in prodana površina.</li>
+      <li><b>Tržnost:</b> do leta 2014 ni oznake, zato je mogoče izbrati le vrsto posla. Med poslami na prostem trgu so zato lahko tudi netržni, kar lahko povzroči manjši preskok med letoma 2014 in 2015.</li>
+      <li><b>Zemljišča:</b> leta 2010 mnogim parcelam manjka površina, do leta 2013 pa tudi lokacija. Taki posli ostanejo v številu poslov, a brez cene na m² oziroma brez točke na zemljevidu.</li>
+      <li><b>Razmerje do vrednosti GURS:</b> pri starih poslih primerja takratno ceno z današnjo vrednostjo, zato pove predvsem, koliko so cene zrasle.</li>
     </ul>
 
     <h3>Privzeti filtri</h3>

@@ -29,6 +29,7 @@ export const MARKETS = {
   5: 'V preverjanju',
   3: 'Drug posel',
   4: 'Neopredeljen',
+  6: 'Brez oznake (do 2014)',
 };
 
 export const LAND_BANDS = [
@@ -77,13 +78,9 @@ export function quantile(sorted, q) {
   return sorted[low] + (sorted[high] - sorted[low]) * (at - low);
 }
 
-export async function loadStore() {
-  const [deals, meta] = await Promise.all([json('data/deals.json'), json('data/meta.json')]);
-  const c = deals.cols;
-  const n = deals.n;
+function salesColumns({ n, cols: c }) {
   const store = {
-    n, meta,
-    t: Uint8Array.from(c.t), m: Uint8Array.from(c.m), o: Uint16Array.from(c.o), k: Uint16Array.from(c.k),
+    t: Uint8Array.from(c.t), m: Uint16Array.from(c.m), o: Uint16Array.from(c.o), k: Uint16Array.from(c.k),
     f: Uint8Array.from(c.f), v: Uint8Array.from(c.v), r: Uint8Array.from(c.r), b: Uint16Array.from(c.b),
     c: Uint8Array.from(c.c), s: Uint8Array.from(c.s), p: Float64Array.from(c.p), a: Float32Array.from(c.a),
     g: Float64Array.from(c.g), l: Float32Array.from(c.l), d: Float32Array.from(c.d), h: Float64Array.from(c.h),
@@ -91,7 +88,6 @@ export async function loadStore() {
     lon: new Float32Array(n), lat: new Float32Array(n), mx: new Float32Array(n), my: new Float32Array(n),
     em: new Float32Array(n), bm: new Float32Array(n), ratio: new Float32Array(n),
   };
-  let builtMax = 0;
   for (let i = 0; i < n; i++) {
     const lon = c.x[i] / 1e4, lat = c.y[i] / 1e4;
     store.lon[i] = lon;
@@ -102,14 +98,34 @@ export async function loadStore() {
     store.bm[i] = building ? store.em[i] * (1 - store.h[i] / store.g[i]) : NaN;
     const ratio = store.g[i] > 0 ? store.p[i] / store.g[i] : NaN;
     store.ratio[i] = ratio > 0.1 && ratio < 10 ? ratio : NaN;
-    if (store.b[i] > builtMax) builtMax = store.b[i];
   }
+  return store;
+}
+
+export async function loadStore() {
+  const [deals, meta] = await Promise.all([json('data/deals.json'), json('data/meta.json')]);
+  const store = { n: deals.n, meta, older: false, ...salesColumns(deals) };
   store.firstYear = meta.firstYear;
   store.lastYear = meta.firstYear + Math.floor(meta.lastMonth / 12);
   store.builtMin = OLDEST_BUILT;
-  store.builtMax = builtMax;
+  store.builtMax = store.b.reduce((most, year) => Math.max(most, year), 0);
   store.firstPartialQuarter = findPartialQuarter(store);
   return store;
+}
+
+// Most visits never leave the default years, so the older sales only come when asked for.
+// They go behind the recent ones, which leaves every index already in use valid.
+export async function loadOlder(store) {
+  const deals = await json('data/deals-old.json');
+  const older = salesColumns(deals);
+  for (const [key, values] of Object.entries(older)) {
+    const joined = new store[key].constructor(store.n + deals.n);
+    joined.set(store[key]);
+    joined.set(values, store.n);
+    store[key] = joined;
+  }
+  store.n += deals.n;
+  store.older = true;
 }
 
 // Sales reach ETN months after signing, so the newest quarters look like a collapse.
@@ -129,11 +145,11 @@ export const quarterLabel = (store, q) => `${store.firstYear + Math.floor(q / 4)
 export function defaultState(store) {
   return {
     types: new Set([1]),
-    y0: store.firstYear,
+    y0: store.meta.recentFrom,
     y1: store.lastYear,
     fresh: 0,
     kinds: new Set([1]),
-    markets: new Set([1, 2, 5]),
+    markets: new Set([1, 2, 5, 6]),
     build: 'all',
     b0: store.builtMin,
     b1: store.builtMax,
@@ -319,6 +335,8 @@ export function regions(store, s, list, level) {
   const key = level === 'o' ? store.o : store.k;
   const groups = new Map();
   const firstMonth = (s.y0 - store.firstYear) * 12, lastYearMonth = (s.y1 - store.firstYear) * 12;
+  // Houses have no EUR/m2 before this year, so their growth has to start there.
+  const houseStart = Math.max(firstMonth, (store.meta.houseAreaFrom - store.firstYear) * 12);
   for (const i of list) {
     const id = key[i];
     let g = groups.get(id);
@@ -326,7 +344,7 @@ export function regions(store, s, list, level) {
     collect(g.all, store, i);
     const em = store.em[i];
     if (em === em) {
-      if (store.m[i] < firstMonth + 12) g.first.push(em);
+      if (store.m[i] < (store.t[i] === HOUSE ? houseStart : firstMonth) + 12) g.first.push(em);
       if (store.m[i] >= lastYearMonth) g.last.push(em);
     }
   }
@@ -354,8 +372,24 @@ export function metricValue(rec, metric) {
   }
 }
 
-let details = null;
-export function loadDetails() {
+function joinDetails(recent, older) {
+  const shift = recent.dict.length;
+  return {
+    dict: recent.dict.concat(older.dict),
+    address: recent.address.concat(older.address.map((at) => at + shift)),
+    place: recent.place.concat(older.place.map((at) => at + shift)),
+    day: recent.day.concat(older.day),
+    id: recent.id.concat(older.id),
+    farm: recent.farm.concat(older.farm),
+  };
+}
+
+let details = null, detailsHaveOlder = false;
+export function loadDetails(store) {
   details ||= json('data/details.json');
+  if (store.older && !detailsHaveOlder) {
+    detailsHaveOlder = true;
+    details = Promise.all([details, json('data/details-old.json')]).then(([recent, older]) => joinDetails(recent, older));
+  }
   return details;
 }

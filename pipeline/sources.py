@@ -12,7 +12,7 @@ from datetime import date
 
 ROOT = "https://ipi.eprostor.gov.si/jgp-service-api"
 API = f"{ROOT}/display-views/groups"
-FIRST_YEAR = 2020
+FIRST_YEAR = 2010   # 2007-2009 exist but are far from complete
 
 # (display group, composite product) as listed by /display-views/groups/{id}/composite-products
 SALES = (127, 321)       # Kupoprodajni posli za območje Slovenije po letih

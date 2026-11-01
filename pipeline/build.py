@@ -63,6 +63,13 @@ PRICE_BOUNDS = {  # EUR/m2, smallest credible area m2
 }
 BIG_LAND_M2 = 3000  # a building sold with this much land is closer to a farm than a house
 NO_ENTRY_AGE = 9999  # days, old enough never to count as new
+RECENT_FROM = 2020   # the page starts with these sales, older ones load when the year slider asks
+# Houses before this year have only the sold area, about 1.5x the useful one, so their
+# EUR/m2 would look falsely low. They stay in the counts and in the price statistics.
+HOUSE_AREA_FROM = 2014
+# TRZNOST_POSLA starts here. Earlier sales are 4 "undefined" only because nobody assessed them.
+MARKET_FLAG_FROM = 2015
+MARKET_UNDEFINED, MARKET_NOT_ASSESSED = 4, 6
 
 FLAG_NEW, FLAG_PART, FLAG_BUNDLE, FLAG_VAT, FLAG_PARKING, FLAG_NO_PRICE, FLAG_BIG_LAND = 1, 2, 4, 8, 16, 32, 64
 
@@ -173,7 +180,8 @@ def classify(deals: pd.DataFrame, parts: pd.DataFrame, land: pd.DataFrame) -> pd
         new=("new", "max"),
     )
     first = main.drop_duplicates("deal").set_index("deal")
-    agg = agg.join(first[["e", "n", "ko", "municipality", "settlement", "street", "house_no", "construction", "building_type"]])
+    agg = agg.join(first[["e", "n", "ko", "municipality", "settlement", "street", "house_no", "construction", "building_type",
+                          "building", "unit"]])
 
     has_commercial = parts[parts.part_type.isin(COMMERCIAL_PARTS)].deal.unique()
     has_parking = parts[parts.part_type.isin({3, 4})].deal.unique()
@@ -197,7 +205,9 @@ def classify(deals: pd.DataFrame, parts: pd.DataFrame, land: pd.DataFrame) -> pd
     biggest = only_land.sort_values("area").drop_duplicates("deal", keep="last").set_index("deal")
     plots = only_land.groupby("deal").agg(area=("area", "sum"), min_share=("share", "min"))
     plots["group"] = dominant.group
-    plots = plots.join(biggest[["e", "n", "ko", "municipality"]])
+    plots = plots.join(biggest[["e", "n", "ko", "municipality", "parcel"]])
+    # 2010 often lacks parcel areas, and a sum over only some parcels would inflate EUR/m2.
+    plots.loc[plots.index.isin(only_land[only_land.area <= 0].deal), "area"] = np.nan
     plots["land_area"] = plots.area
     # A sale split evenly across farmland and forest has no single EUR/m2 worth reporting.
     plots["bundle"] = dominant.group_area / plots.area < 0.8
@@ -205,6 +215,24 @@ def classify(deals: pd.DataFrame, parts: pd.DataFrame, land: pd.DataFrame) -> pd
 
     sales = pd.concat([buildings, plots])
     return deals.set_index("deal").join(sales, how="inner")
+
+
+def drop_repeats(sales: pd.DataFrame, parts: pd.DataFrame, land: pd.DataFrame) -> pd.DataFrame:
+    """One sale can be reported twice under two ids, a quarter of all rows in 2010-13.
+
+    The copies differ in detail, say a house with its garage against the house alone, so they
+    are matched on the main property, date and price, and the fullest one stays. Sold shares are
+    left alone, because two co-owners can each sell a half on the same day for the same price.
+    """
+    rows = parts.groupby("deal").size().add(land.groupby("deal").size(), fill_value=0)
+    place = sales.ko.astype(str) + "/" + sales.building.fillna(0).astype(int).astype(str) + "/" \
+        + sales.unit.fillna(0).astype(int).astype(str) + "/" + sales.parcel.fillna("")
+    candidates = sales.assign(place=place, rows=rows.reindex(sales.index).fillna(0))
+    candidates = candidates[(candidates.min_share >= 0.999) & (candidates.price > 0)]
+    fullest_first = candidates.sort_values(["rows", "entered"], ascending=[False, True])
+    repeats = fullest_first[fullest_first.duplicated(["place", "date", "price"])].index
+    print("repeated sales removed:", sales.loc[repeats].groupby(sales.date.dt.year).size().to_dict())
+    return sales.drop(repeats)
 
 
 def add_values(sales: pd.DataFrame, parts: pd.DataFrame, land: pd.DataFrame, units: pd.DataFrame,
@@ -240,6 +268,7 @@ def main() -> None:
         "act": deals.VRSTA_AKTA,
         "market": pd.to_numeric(deals.TRZNOST_POSLA, errors="coerce").fillna(4).astype(int),
     })
+    deals.loc[(deals.date.dt.year < MARKET_FLAG_FROM) & (deals.market == MARKET_UNDEFINED), "market"] = MARKET_NOT_ASSESSED
     total_rows = len(deals)
     deals = deals[deals.date >= MIN_DATE]
 
@@ -283,7 +312,7 @@ def main() -> None:
     units, parcels, valuation = read_valuation(parts, land)
     parts = parts.merge(units[["ko", "building", "unit", "construction", "building_type"]], on=["ko", "building", "unit"], how="left")
 
-    sales = classify(deals, parts, land)
+    sales = drop_repeats(classify(deals, parts, land), parts, land)
     sales = add_values(sales, parts, land, units, parcels)
 
     # Location
@@ -306,7 +335,8 @@ def main() -> None:
     low = sales.group.map(lambda g: PRICE_BOUNDS[g][0])
     high = sales.group.map(lambda g: PRICE_BOUNDS[g][1])
     smallest = sales.group.map(lambda g: PRICE_BOUNDS[g][2])
-    priced = sales.per_m2.between(low, high) & (sales.area >= smallest)
+    priced = sales.per_m2.between(low, high) & (sales.area >= smallest) \
+        & ~((sales.group == HOUSE) & (sales.date.dt.year < HOUSE_AREA_FROM))
 
     bits = (
         sales.new.eq(True).astype(int) * FLAG_NEW
@@ -329,14 +359,8 @@ def rounded(values: pd.Series, digits: int = 0) -> list:
     return out.astype(int).tolist() if digits == 0 else [int(v) if v == int(v) else v for v in out.tolist()]
 
 
-def write_outputs(sales, municipalities, cadastral, valuation, total_rows) -> None:
-    OUT.mkdir(parents=True, exist_ok=True)
-    month = (sales.date.dt.year - FIRST_YEAR) * 12 + sales.date.dt.month - 1
-    # Exports lag and sales arrive in monthly batches, so "new" counts back from the newest
-    # entry. Counted from today, a week would almost always be empty.
-    last_entry = sales.entered[sales.entered <= pd.Timestamp.today()].max()
-    entry_age = (last_entry - sales.entered).dt.days.clip(lower=0).fillna(NO_ENTRY_AGE).astype(int)
-
+def write_sales(sales, month, entry_age, suffix) -> None:
+    """One pair of files: the columns every chart needs and the details a single sale shows."""
     columns = {
         "t": sales.group.astype(int).tolist(),
         "m": month.astype(int).tolist(),
@@ -358,7 +382,7 @@ def write_outputs(sales, municipalities, cadastral, valuation, total_rows) -> No
         "h": rounded(sales.land_gv),
         "u": entry_age.tolist(),
     }
-    (OUT / "deals.json").write_text(json.dumps({"n": len(sales), "cols": columns}, separators=(",", ":")), encoding="utf8")
+    (OUT / f"deals{suffix}.json").write_text(json.dumps({"n": len(sales), "cols": columns}, separators=(",", ":")), encoding="utf8")
 
     addresses = (sales.street.where(sales.street.fillna("") != "", sales.settlement).fillna("") + " " + sales.house_no.fillna("")).str.strip()
     place = sales.settlement.fillna("")
@@ -372,7 +396,20 @@ def write_outputs(sales, municipalities, cadastral, valuation, total_rows) -> No
         "id": sales.index.astype(int).tolist(),
         "farm": rounded(sales.farm_area),
     }
-    (OUT / "details.json").write_text(json.dumps(details, separators=(",", ":"), ensure_ascii=False), encoding="utf8")
+    (OUT / f"details{suffix}.json").write_text(json.dumps(details, separators=(",", ":"), ensure_ascii=False), encoding="utf8")
+
+
+def write_outputs(sales, municipalities, cadastral, valuation, total_rows) -> None:
+    OUT.mkdir(parents=True, exist_ok=True)
+    month = (sales.date.dt.year - FIRST_YEAR) * 12 + sales.date.dt.month - 1
+    # Exports lag and sales arrive in monthly batches, so "new" counts back from the newest
+    # entry. Counted from today, a week would almost always be empty.
+    last_entry = sales.entered[sales.entered <= pd.Timestamp.today()].max()
+    entry_age = (last_entry - sales.entered).dt.days.clip(lower=0).fillna(NO_ENTRY_AGE).astype(int)
+
+    recent = sales.date.dt.year >= RECENT_FROM
+    write_sales(sales[recent], month[recent], entry_age[recent], "")
+    write_sales(sales[~recent], month[~recent], entry_age[~recent], "-old")
 
     sources = {}
     for year in raw_years():
@@ -397,6 +434,8 @@ def write_outputs(sales, municipalities, cadastral, valuation, total_rows) -> No
         "rowsInEtn": total_rows,
     }
     meta = dict(summary)
+    meta["houseAreaFrom"] = HOUSE_AREA_FROM
+    meta["recentFrom"] = RECENT_FROM
     meta["types"] = {str(k): v for k, v in TYPE_LABELS.items()}
     meta["municipalities"] = {str(k): v for k, v in municipalities.items()}
     meta["cadastral"] = {str(k): v for k, v in cadastral.items()}
@@ -414,8 +453,8 @@ def write_outputs(sales, municipalities, cadastral, valuation, total_rows) -> No
     STATUS.parent.mkdir(exist_ok=True)
     STATUS.write_text(json.dumps({"summary": summary, "sources": sources}, indent=1, ensure_ascii=False) + "\n", encoding="utf8")
     print(json.dumps(summary, indent=1))
-    for path in ("deals.json", "details.json", "meta.json"):
-        print(path, f"{(OUT / path).stat().st_size / 1e6:.1f} MB")
+    for path in sorted(OUT.glob("*.json")):
+        print(path.name, f"{path.stat().st_size / 1e6:.1f} MB")
 
 
 if __name__ == "__main__":
