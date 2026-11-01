@@ -62,11 +62,12 @@ PRICE_BOUNDS = {  # EUR/m2, smallest credible area m2
     LAND_FOREST: (0.05, 30, 30),
 }
 BIG_LAND_M2 = 3000  # a building sold with this much land is closer to a farm than a house
+NO_ENTRY_AGE = 9999  # days, old enough never to count as new
 
 FLAG_NEW, FLAG_PART, FLAG_BUNDLE, FLAG_VAT, FLAG_PARKING, FLAG_NO_PRICE, FLAG_BIG_LAND = 1, 2, 4, 8, 16, 32, 64
 
 REQUIRED = {
-    "KPP_POSLI": ["ID_POSLA", "VRSTA_KUPOPRODAJNEGA_POSLA", "DATUM_SKLENITVE_POGODBE",
+    "KPP_POSLI": ["ID_POSLA", "VRSTA_KUPOPRODAJNEGA_POSLA", "DATUM_SKLENITVE_POGODBE", "DATUM_UVELJAVITVE",
                   "POGODBENA_CENA_ODSKODNINA", "VKLJUCENOST_DDV", "VRSTA_AKTA", "TRZNOST_POSLA"],
     "KPP_DELISTAVB": ["ID_POSLA", "SIFRA_KO", "OBCINA", "STEVILKA_STAVBE", "STEVILKA_DELA_STAVBE", "NASELJE",
                       "ULICA", "HISNA_STEVILKA", "DODATEK_HS", "VRSTA_DELA_STAVBE", "LETO_IZGRADNJE_DELA_STAVBE",
@@ -233,6 +234,7 @@ def main() -> None:
         "deal": deals.ID_POSLA,
         "kind": pd.to_numeric(deals.VRSTA_KUPOPRODAJNEGA_POSLA, errors="coerce").fillna(0).astype(int),
         "date": pd.to_datetime(deals.DATUM_SKLENITVE_POGODBE, format="%d.%m.%Y", errors="coerce"),
+        "entered": pd.to_datetime(deals.DATUM_UVELJAVITVE, format="%d.%m.%Y", errors="coerce"),
         "price": number(deals.POGODBENA_CENA_ODSKODNINA),
         "vat": deals.VKLJUCENOST_DDV == "1",
         "act": deals.VRSTA_AKTA,
@@ -330,6 +332,10 @@ def rounded(values: pd.Series, digits: int = 0) -> list:
 def write_outputs(sales, municipalities, cadastral, valuation, total_rows) -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     month = (sales.date.dt.year - FIRST_YEAR) * 12 + sales.date.dt.month - 1
+    # Exports lag and sales arrive in monthly batches, so "new" counts back from the newest
+    # entry. Counted from today, a week would almost always be empty.
+    last_entry = sales.entered[sales.entered <= pd.Timestamp.today()].max()
+    entry_age = (last_entry - sales.entered).dt.days.clip(lower=0).fillna(NO_ENTRY_AGE).astype(int)
 
     columns = {
         "t": sales.group.astype(int).tolist(),
@@ -350,6 +356,7 @@ def write_outputs(sales, municipalities, cadastral, valuation, total_rows) -> No
         "l": rounded(sales.land_area),
         "d": rounded(sales.whole_area, 1),
         "h": rounded(sales.land_gv),
+        "u": entry_age.tolist(),
     }
     (OUT / "deals.json").write_text(json.dumps({"n": len(sales), "cols": columns}, separators=(",", ":")), encoding="utf8")
 
@@ -381,6 +388,7 @@ def write_outputs(sales, municipalities, cadastral, valuation, total_rows) -> No
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "etnDate": max(v["date"] for k, v in sources.items() if k != "valuation"),
         "evDate": sources["valuation"]["date"],
+        "lastEntry": last_entry.strftime("%Y%m%d"),
         "firstYear": FIRST_YEAR,
         "lastMonth": last_month,
         "sales": len(sales),

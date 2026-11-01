@@ -208,7 +208,7 @@ a { color: inherit; }
   cursor: grab;
 }
 .range-marks { display: flex; justify-content: space-between; font: 400 10px var(--mono); color: var(--ink-3); margin-top: 1px; }
-.range-marks + .chips { margin-top: 7px; }
+.filter-note { margin-top: 5px; color: var(--ink-3); font-size: 12px; }
 .play { display: inline-flex; align-items: center; gap: 6px; margin-top: 9px; color: var(--ink-2); font-size: 12px; }
 .play:hover { color: var(--accent); }
 .play[aria-pressed='true'] { color: var(--accent); }

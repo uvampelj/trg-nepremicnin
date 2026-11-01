@@ -65,6 +65,16 @@
         </section>
 
         <section class="group">
+          <h3>Novo v evidenci</h3>
+          <div class="segment" id="f-fresh" role="group" aria-label="Nedavno vpisani posli">
+            <button type="button" data-v="0">Vse</button>
+            <button type="button" data-v="7">Zadnji teden</button>
+            <button type="button" data-v="30">Zadnji mesec</button>
+          </div>
+          <p class="filter-note" id="fresh-note"></p>
+        </section>
+
+        <section class="group">
           <h3><label for="f-area">Območje</label></h3>
           <div class="search">
             <input id="f-area" list="area-list" placeholder="Občina ali k. o." autocomplete="off">
@@ -98,7 +108,6 @@
             <input type="range" id="b1" aria-label="Zgrajeno do leta" step="1">
           </div>
           <div class="range-marks" id="built-marks"></div>
-          <div class="chips small" id="f-periods"></div>
           <h4>Konstrukcija</h4>
           <div class="chips small" id="f-constructions"></div>
           <h4>Tip stavbe</h4>
@@ -279,6 +288,9 @@
 
     <h3>Zakaj zadnji meseci niso popolni</h3>
     <p>Posel pride v ETN šele po oddaji poročila, pogosto več mesecev po podpisu. Zadnje četrtletje ima zato manj poslov, kar je na grafih označeno z bledim koncem črte. Leto z zvezdico še ni zaključeno.</p>
+
+    <h3>Novo v evidenci</h3>
+    <p>Filter izbira posle po datumu vpisa v ETN, ne po datumu pogodbe. Obdobje se šteje od zadnjega vpisa v objavljenih podatkih, ne od današnjega dne, ker GURS podatke objavlja z zamikom. Posli prihajajo večinoma v mesečnih paketih, zato ima zadnji teden lahko le nekaj poslov, zadnji mesec pa praviloma zajame zadnji paket. Filter upošteva tudi preostale izbrane filtre.</p>
 
     <h3>Toplotna karta</h3>
     <p>Toplotna karta zgladi posle okoli vsake točke in prikaže geometrijsko sredino vrednosti, da posamezna draga nepremičnina ne prebarva okolice. Mesta z enim samim poslom niso obarvana. Pri več izbranih tipih se mešajo različne cenovne ravni, zato je cene najbolje primerjati znotraj enega tipa.</p>

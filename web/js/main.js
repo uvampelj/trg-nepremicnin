@@ -1,5 +1,5 @@
 import {
-  HOUSE, KINDS, MARKETS, MIN_SAMPLE, PERIODS, TYPE_IDS, analyse, defaultState, housesByLand, loadDetails, loadStore,
+  HOUSE, KINDS, MARKETS, MIN_SAMPLE, TYPE_IDS, analyse, defaultState, housesByLand, loadDetails, loadStore,
   median, metricValue, quarterLabel, regions, select,
 } from './store.js';
 import { METRICS, count, money, percent, perM2, ratio } from './scale.js';
@@ -25,6 +25,13 @@ const themeNow = () => {
 
 function formatDate(stamp) {
   return `${Number(stamp.slice(6, 8))}. ${Number(stamp.slice(4, 6))}. ${stamp.slice(0, 4)}`;
+}
+
+// The date a sale reached ETN, kept as days before the newest entry.
+function entryDate(age) {
+  const stamp = store.meta.lastEntry;
+  const day = new Date(Date.UTC(Number(stamp.slice(0, 4)), Number(stamp.slice(4, 6)) - 1, Number(stamp.slice(6, 8)) - age));
+  return `${day.getUTCDate()}. ${day.getUTCMonth() + 1}. ${day.getUTCFullYear()}`;
 }
 
 const yearLabel = (y) => {
@@ -55,6 +62,7 @@ function writeHash() {
   }
   if (state.y0 !== d.y0 || state.y1 !== d.y1) q.set('y', `${state.y0}-${state.y1}`);
   if (state.b0 !== d.b0 || state.b1 !== d.b1) q.set('i', `${state.b0}-${state.b1}`);
+  if (state.fresh) q.set('n', state.fresh);
   for (const [key, name] of Object.entries(NUMS)) if (state[name] !== null) q.set(key, state[name]);
   if (state.build !== 'all') q.set('g', state.build);
   if (state.includePart) q.set('dp', 1);
@@ -79,6 +87,7 @@ function readHash() {
     const [a, b] = q.get('i').split('-').map(Number);
     if (a >= store.builtMin && b <= store.builtMax && a <= b) { state.b0 = a; state.b1 = b; }
   }
+  if (['7', '30'].includes(q.get('n'))) state.fresh = Number(q.get('n'));
   for (const [key, name] of Object.entries(NUMS)) if (q.has(key)) state[name] = Number(q.get(key));
   if (['new', 'used'].includes(q.get('g'))) state.build = q.get('g');
   state.includePart = q.has('dp');
@@ -148,21 +157,6 @@ function syncRange(trackId, lowId, highId, low, high, min, max) {
   track.style.setProperty('--to', `${((high - min) / span) * 100}%`);
 }
 
-// A period chip is a shortcut for the slider, so the slider stays the only state.
-const periodSpan = (period) => [Math.max(period.lo, store.builtMin), Math.min(period.hi, store.builtMax)];
-
-function periodChips(host) {
-  host.innerHTML = PERIODS.map((p) => `<button class="chip" type="button" data-id="${p.id}">${p.label}</button>`).join('');
-  host.addEventListener('click', (e) => {
-    const chip = e.target.closest('.chip');
-    if (!chip) return;
-    stopPlay();
-    const on = chip.getAttribute('aria-pressed') === 'true';
-    [state.b0, state.b1] = on ? [store.builtMin, store.builtMax] : periodSpan(PERIODS.find((p) => p.id === Number(chip.dataset.id)));
-    changed();
-  });
-}
-
 function builtLabel() {
   const from = state.b0 > store.builtMin, to = state.b1 < store.builtMax;
   if (from && to) return state.b0 === state.b1 ? `${state.b0}` : `${state.b0}–${state.b1}`;
@@ -178,7 +172,6 @@ function openMethod(sectionId) {
 function buildControls() {
   const { meta } = store;
   chipGroup($('f-types'), TYPE_IDS.map((t) => [t, typeName(t)]), () => state.types, true);
-  periodChips($('f-periods'));
   const construction = Object.entries(meta.construction).filter(([id]) => Number(id) > 0);
   chipGroup($('f-constructions'), construction, () => state.constructions);
   const buildingTypes = Object.entries(meta.buildingTypes).filter(([id]) => Number(id) > 0);
@@ -187,6 +180,12 @@ function buildControls() {
   checkGroup($('f-markets'), Object.entries(MARKETS), () => state.markets);
 
   segment($('f-build'), () => state.build, (v) => { state.build = v; });
+  segment($('f-fresh'), () => String(state.fresh), (v) => {
+    stopPlay();
+    state.fresh = Number(v);
+    // A heat surface needs neighbours, and a few new sales would leave the map blank.
+    if (state.fresh && state.mode === 'heat') state.mode = 'points';
+  });
   $('f-metric').innerHTML = Object.entries(METRICS).map(([id, m]) => `<button type="button" data-v="${id}">${m.label}</button>`).join('');
   segment($('f-mode'), () => state.mode, (v) => { state.mode = v; if (v === 'heat' && !METRICS[state.metric].heat) state.metric = 'em'; });
   segment($('f-metric'), () => state.metric, (v) => { state.metric = v; if (!METRICS[v].heat && state.mode === 'heat') state.mode = 'areas'; });
@@ -267,16 +266,15 @@ function syncTabs() {
 function syncControls() {
   const mark = (host, set) => host.querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', set.has(Number(c.dataset.id))));
   mark($('f-types'), state.types);
-  $('f-periods').querySelectorAll('.chip').forEach((chip) => {
-    const [low, high] = periodSpan(PERIODS.find((p) => p.id === Number(chip.dataset.id)));
-    chip.setAttribute('aria-pressed', low === state.b0 && high === state.b1);
-  });
   mark($('f-constructions'), state.constructions);
   mark($('f-building-types'), state.buildingTypes);
   const tick = (host, set) => host.querySelectorAll('input').forEach((c) => { c.checked = set.has(Number(c.dataset.id)); });
   tick($('f-kinds'), state.kinds);
   tick($('f-markets'), state.markets);
-  ['f-build', 'f-mode', 'f-metric', 'f-level', 'stack-by'].forEach((id) => $(id).sync());
+  ['f-build', 'f-fresh', 'f-mode', 'f-metric', 'f-level', 'stack-by'].forEach((id) => $(id).sync());
+  $('fresh-note').textContent = state.fresh
+    ? `Vpisano v ETN od ${entryDate(state.fresh - 1)} do ${entryDate(0)}.`
+    : `Zadnji vpis v ETN: ${entryDate(0)}.`;
 
   syncRange('year-range', 'y0', 'y1', state.y0, state.y1, store.firstYear, store.lastYear);
   syncRange('built-range', 'b0', 'b1', state.b0, state.b1, store.builtMin, store.builtMax);
@@ -626,6 +624,7 @@ function dealFacts(d, i) {
     ['Konstrukcija', store.c[i] ? store.meta.construction[store.c[i]] : ''],
     ['Posel', KINDS[store.v[i]]],
     ['Tržnost', MARKETS[store.r[i]]],
+    ['Vpis v ETN', entryDate(store.u[i])],
   ];
   return facts.filter(([, value]) => value);
 }
@@ -700,7 +699,7 @@ async function downloadCsv() {
   button.textContent = 'Pripravljam';
   const d = await loadDetails();
   const quote = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const rows = ['id_posla;datum;tip;obcina;ko;naselje;naslov;cena_eur;povrsina_m2;skupna_povrsina_m2;zemljisce_m2;kmetijsko_gozd_m2;eur_m2;eur_m2_brez_zemljisca;vrednost_gurs_eur;vrednost_zemljisca_gurs_eur;cena_gurs;leto_izgradnje;vrsta_posla;trznost'];
+  const rows = ['id_posla;datum;tip;obcina;ko;naselje;naslov;cena_eur;povrsina_m2;skupna_povrsina_m2;zemljisce_m2;kmetijsko_gozd_m2;eur_m2;eur_m2_brez_zemljisca;vrednost_gurs_eur;vrednost_zemljisca_gurs_eur;cena_gurs;leto_izgradnje;vrsta_posla;trznost;vpis_etn'];
   for (const i of lists.sel) {
     const month = String((store.m[i] % 12) + 1).padStart(2, '0');
     const day = String(d.day[i]).padStart(2, '0');
@@ -712,7 +711,7 @@ async function downloadCsv() {
       Number.isFinite(store.em[i]) ? store.em[i].toFixed(2) : '',
       Number.isFinite(store.bm[i]) ? store.bm[i].toFixed(2) : '', store.g[i] || '', store.g[i] ? store.h[i] : '',
       Number.isFinite(store.ratio[i]) ? store.ratio[i].toFixed(3) : '', store.b[i] || '',
-      quote(KINDS[store.v[i]]), quote(MARKETS[store.r[i]]),
+      quote(KINDS[store.v[i]]), quote(MARKETS[store.r[i]]), entryDate(store.u[i]),
     ].join(';'));
   }
   const url = URL.createObjectURL(new Blob([`﻿${rows.join('\n')}`], { type: 'text/csv;charset=utf-8' }));

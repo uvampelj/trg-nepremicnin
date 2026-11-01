@@ -31,15 +31,6 @@ export const MARKETS = {
   4: 'Neopredeljen',
 };
 
-export const PERIODS = [
-  { id: 1, label: 'do 1918', lo: 1, hi: 1918 },
-  { id: 2, label: '1919–45', lo: 1919, hi: 1945 },
-  { id: 3, label: '1946–70', lo: 1946, hi: 1970 },
-  { id: 4, label: '1971–90', lo: 1971, hi: 1990 },
-  { id: 5, label: '1991–2010', lo: 1991, hi: 2010 },
-  { id: 6, label: 'po 2010', lo: 2011, hi: 9999 },
-];
-
 export const LAND_BANDS = [
   { label: 'do 300 m²', hi: 300 },
   { label: '300–600 m²', hi: 600 },
@@ -96,6 +87,7 @@ export async function loadStore() {
     f: Uint8Array.from(c.f), v: Uint8Array.from(c.v), r: Uint8Array.from(c.r), b: Uint16Array.from(c.b),
     c: Uint8Array.from(c.c), s: Uint8Array.from(c.s), p: Float64Array.from(c.p), a: Float32Array.from(c.a),
     g: Float64Array.from(c.g), l: Float32Array.from(c.l), d: Float32Array.from(c.d), h: Float64Array.from(c.h),
+    u: Uint16Array.from(c.u),
     lon: new Float32Array(n), lat: new Float32Array(n), mx: new Float32Array(n), my: new Float32Array(n),
     em: new Float32Array(n), bm: new Float32Array(n), ratio: new Float32Array(n),
   };
@@ -139,6 +131,7 @@ export function defaultState(store) {
     types: new Set([1]),
     y0: store.firstYear,
     y1: store.lastYear,
+    fresh: 0,
     kinds: new Set([1]),
     markets: new Set([1, 2, 5]),
     build: 'all',
@@ -160,7 +153,7 @@ export function defaultState(store) {
 // map:  passes every filter except the selected area (the map always shows the country)
 // sel:  passes everything
 export function select(store, s) {
-  const { n, t, m, f, v, r, b, c, s: bt, p, a, o, k, l } = store;
+  const { n, t, m, f, v, r, b, c, s: bt, p, a, o, k, l, u } = store;
   const base = new Int32Array(n), map = new Int32Array(n), sel = new Int32Array(n);
   let nBase = 0, nMap = 0, nSel = 0;
 
@@ -181,6 +174,7 @@ export function select(store, s) {
 
   for (let i = 0; i < n; i++) {
     if (m[i] < m0 || m[i] > m1) continue;
+    if (s.fresh && u[i] >= s.fresh) continue;
     if (f[i] & blocked) continue;
     if (!kinds[v[i]] || !markets[r[i]]) continue;
     if (newOnly && !(f[i] & FLAG_NEW)) continue;

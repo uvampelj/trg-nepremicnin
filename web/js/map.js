@@ -13,6 +13,7 @@ const PAINT = {
 };
 const SLOVENIA = [[13.37, 45.42], [16.61, 46.88]];
 const MAX_POINTS = 40000;
+const FEW_POINTS = 1000;  // a selection this small gets bigger dots, or it vanishes at country zoom
 const HIT_PX = 8;         // dots are tiny at low zoom, so the cursor only has to come close
 const KO_ZOOM = 9.8;      // from here a municipality fills the view, so its parts take over
 const CELL_PX = 3;       // heat grid resolution in screen pixels
@@ -538,6 +539,8 @@ export class SalesMap {
       });
     }
     map.getSource('points').setData({ type: 'FeatureCollection', features });
+    const few = list.length < FEW_POINTS;
+    map.setPaintProperty('points', 'circle-radius', ['interpolate', ['linear'], ['zoom'], 7, few ? 5 : 2, 11, few ? 6 : 3.5, 15, 7]);
     const legend = this.areaLegend(metric, scale);
     legend.note = step > 1
       ? `Prikazanih ${count(features.length)} od ${count(spots.length)} lokacij. Približajte.`
