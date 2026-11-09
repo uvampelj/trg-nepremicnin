@@ -26,13 +26,19 @@ def _open(url: str, timeout: int):
     return urllib.request.urlopen(urllib.request.Request(url, headers=HEADERS), timeout=timeout)
 
 
+def closed(error: BaseException) -> bool:
+    """GURS answers 403 while it keeps a service shut, as after its security stop of November 2026."""
+    return getattr(error, "code", None) == 403
+
+
 def _get_json(url: str, tries: int = 6) -> dict | list:
     for attempt in range(tries):
         try:
             with _open(url, 60) as resp:
                 return json.load(resp)
         except OSError as error:
-            if attempt == tries - 1 or getattr(error, "code", None) == 404:
+            # 404 is an answer, and waiting does not reopen a closed service.
+            if attempt == tries - 1 or getattr(error, "code", None) == 404 or closed(error):
                 raise
             # The server resets connections under load and needs a real pause.
             time.sleep(30 * (attempt + 1))
@@ -71,8 +77,8 @@ def fetch(product: tuple[int, int], year: int | None = None, where: tuple[str, i
             if len(data) != expected:
                 raise OSError(f"short download: {len(data)} of {expected} bytes")
             return data
-        except (OSError, http.client.HTTPException):
-            if attempt == tries - 1:
+        except (OSError, http.client.HTTPException) as error:
+            if attempt == tries - 1 or closed(error):
                 raise
             time.sleep(20 * (attempt + 1))
     raise AssertionError

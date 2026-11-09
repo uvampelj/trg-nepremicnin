@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import re
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -24,7 +25,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.csv as pacsv
 
-from pipeline.sources import VALUATION, fetch, municipalities
+from pipeline.sources import VALUATION, closed, fetch, municipalities
 
 OUT = Path("data/valuation")
 WORKERS = 3   # more than this makes the GURS server reset connections
@@ -122,7 +123,15 @@ def main() -> None:
     parser.add_argument("--zip", type=Path, help="national archive instead of the municipal exports")
     args = parser.parse_args()
 
-    frames, names, stamp = from_national(args.zip) if args.zip else from_municipalities()
+    try:
+        frames, names, stamp = from_national(args.zip) if args.zip else from_municipalities()
+    except OSError as error:
+        if not closed(error):
+            raise
+        # The published table stays; the daily job fails once its data gets too old.
+        print(f"::warning::GURS je storitev zaprl ({error}), tabela vrednosti ostaja nespremenjena.")
+        built(False)
+        return
     units, parcels = build(frames)
     print(f"units {len(units):,}, with value {units.gv.notna().mean():.1%}")
     print(f"parcels {len(parcels):,}, with value {parcels.gv.notna().mean():.1%}")
@@ -137,6 +146,13 @@ def main() -> None:
     (OUT / "valuation.json").write_text(json.dumps(info, ensure_ascii=False, indent=1), encoding="utf8")
     for path in sorted(OUT.iterdir()):
         print(path.name, f"{path.stat().st_size / 1e6:.1f} MB")
+    built(True)
+
+
+def built(done: bool) -> None:
+    if out := os.environ.get("GITHUB_OUTPUT"):
+        with open(out, "a", encoding="utf8") as f:
+            f.write(f"built={'true' if done else 'false'}\n")
 
 
 if __name__ == "__main__":

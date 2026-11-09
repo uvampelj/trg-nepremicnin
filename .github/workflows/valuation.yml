@@ -24,9 +24,11 @@ jobs:
       - run: pip install -r pipeline/requirements.txt
 
       - name: Prenesi občinske izvoze in zgradi tabelo vrednosti
+        id: build
         run: python -m pipeline.valuation
 
       - name: Objavi tabelo kot izdajo
+        if: steps.build.outputs.built == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
