@@ -305,6 +305,8 @@ a { color: inherit; }
 .rail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
 .rail-head h2 { font-size: 15px; font-weight: 600; line-height: 1.3; margin-top: 1px; }
 .rail-head .ghost { flex: none; }
+.rail-note { margin: 0 0 12px; padding: 6px 10px; border-left: 3px solid var(--accent); background: var(--wash); font-size: 12.5px; }
+.rail-note .link { font-size: inherit; }
 
 .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 2px solid var(--ink); }
 .hero { grid-column: 1 / -1; display: flex; flex-direction: column; padding: 9px 0 10px; border-bottom: 1px solid var(--line-2); }

@@ -19,11 +19,12 @@ VALUATION = Path("data/valuation/valuation.json")
 STALE_DAYS = 21
 
 
-def report(changed: bool, note: str = "") -> None:
+def report(changed: bool, note: str = "", reachable: bool = True) -> None:
     print(f"changed={'true' if changed else 'false'}")
     if out := os.environ.get("GITHUB_OUTPUT"):
         with open(out, "a", encoding="utf8") as f:
             f.write(f"changed={'true' if changed else 'false'}\n")
+            f.write(f"reachable={'true' if reachable else 'false'}\n")
     if note and (summary := os.environ.get("GITHUB_STEP_SUMMARY")):
         with open(summary, "a", encoding="utf8") as f:
             f.write(note + "\n")
@@ -37,7 +38,7 @@ def unreachable(error: BaseException, status: dict | None) -> None:
         print(f"::error::{note}")
         raise SystemExit(1)
     print(f"::warning::{note}")
-    report(False, note)
+    report(False, note, reachable=False)
 
 
 def main() -> None:

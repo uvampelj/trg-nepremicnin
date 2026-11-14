@@ -245,6 +245,11 @@ function buildControls() {
 
   $('open-method').addEventListener('click', () => openMethod());
   $('market-help').addEventListener('click', () => openMethod('m-market'));
+  $('fresh-banner').addEventListener('click', (e) => {
+    if (!e.target.closest('button')) return;
+    state.fresh = 0;
+    changed();
+  });
   $('toggle-theme').addEventListener('click', () => {
     const next = themeNow() === 'dark' ? 'light' : 'dark';
     document.documentElement.dataset.theme = next;
@@ -397,8 +402,14 @@ function renderKpis() {
       : TYPE_IDS.filter((t) => state.types.has(t)).map(typeName).join(', ');
   $('scope').textContent = `${typesText} · ${areaName(state.area)} · ${state.y0 === state.y1 ? state.y0 : `${state.y0}–${state.y1}`}`;
 
+  // Recently entered sales are nearly all from this year, so their years cannot be compared.
+  const comparable = !state.fresh;
+  const banner = $('fresh-banner');
+  banner.hidden = comparable;
+  banner.innerHTML = comparable ? '' : `Prikazani so le posli, vpisani v ETN od ${entryDate(state.fresh - 1)} do ${entryDate(0)}, zato primerjave po letih niso prikazane. <button class="link" type="button">Pokaži vse posle</button>`;
+
   const latest = a.latest;
-  const change = Number.isFinite(a.yoy)
+  const change = comparable && Number.isFinite(a.yoy)
     ? `<i aria-hidden="true">${a.yoy >= 0 ? '▲' : '▼'}</i> ${percent(a.yoy)} glede na prejšnje leto · ` : '';
   const delta = latest ? `<span class="delta">${change}${count(latest.nEm)} poslov</span>` : '';
   const withoutLand = state.types.has(HOUSE) && latest?.nBm >= MIN_SAMPLE
@@ -412,7 +423,7 @@ function renderKpis() {
     </div>
     ${tile('Posli', count(a.totals.n))}
     ${tile('Promet', money(a.totals.value))}
-    ${tile('Rast', percent(a.growth), a.growthFrom && Number.isFinite(a.growth) ? `od ${a.growthFrom}` : '')}
+    ${tile('Rast', comparable ? percent(a.growth) : '–', comparable && a.growthFrom && Number.isFinite(a.growth) ? `od ${a.growthFrom}` : '')}
     ${tile('Cena/GURS', ratio(a.latestRatio), latest ? `${yearLabel(latest.year)}` : '')}`;
 }
 
@@ -532,6 +543,10 @@ function changeCell(change) {
 function renderYoy() {
   const a = analysis;
   const years = a.years.slice(1);
+  if (state.fresh) {
+    $('c-yoy').innerHTML = '<p class="empty">Filter Novo v evidenci izbere skoraj samo letošnje posle, zato rasti po letih ni mogoče izračunati.</p>';
+    return;
+  }
   if (!years.length) {
     $('c-yoy').innerHTML = '<p class="empty">Izberite vsaj dve leti.</p>';
     return;
