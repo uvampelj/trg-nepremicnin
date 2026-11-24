@@ -1,101 +1,101 @@
 {
  "summary": {
-  "generated": "2026-11-01T12:03:13Z",
-  "etnDate": "20261101",
+  "generated": "2026-11-24T19:56:10Z",
+  "etnDate": "20261121",
   "evDate": "20261031",
-  "lastEntry": "20261002",
+  "lastEntry": "20261112",
   "firstYear": 2010,
-  "lastMonth": 201,
-  "sales": 456556,
-  "salesWithValue": 401773,
-  "salesWithoutCoordinates": 5277,
-  "rowsInEtn": 545032
+  "lastMonth": 202,
+  "sales": 458813,
+  "salesWithValue": 404032,
+  "salesWithoutCoordinates": 5282,
+  "rowsInEtn": 547535
  },
  "sources": {
   "2010": {
-   "name": "ETN_SLO_2010_KPP_20261101.zip",
+   "name": "ETN_SLO_2010_KPP_20261121.zip",
    "size": 2795323,
-   "date": "20261101"
+   "date": "20261121"
   },
   "2011": {
-   "name": "ETN_SLO_2011_KPP_20261101.zip",
+   "name": "ETN_SLO_2011_KPP_20261121.zip",
    "size": 3035131,
-   "date": "20261101"
+   "date": "20261121"
   },
   "2012": {
-   "name": "ETN_SLO_2012_KPP_20261101.zip",
+   "name": "ETN_SLO_2012_KPP_20261121.zip",
    "size": 3054608,
-   "date": "20261101"
+   "date": "20261121"
   },
   "2013": {
-   "name": "ETN_SLO_2013_KPP_20261101.zip",
+   "name": "ETN_SLO_2013_KPP_20261121.zip",
    "size": 2493984,
-   "date": "20261101"
+   "date": "20261121"
   },
   "2014": {
-   "name": "ETN_SLO_2014_KPP_20261101.zip",
+   "name": "ETN_SLO_2014_KPP_20261121.zip",
    "size": 3150695,
-   "date": "20261101"
+   "date": "20261121"
   },
   "2015": {
-   "name": "ETN_SLO_2015_KPP_20261101.zip",
+   "name": "ETN_SLO_2015_KPP_20261121.zip",
    "size": 2757741,
-   "date": "20261101"
+   "date": "20261121"
   },
   "2016": {
-   "name": "ETN_SLO_2016_KPP_20261101.zip",
+   "name": "ETN_SLO_2016_KPP_20261121.zip",
    "size": 3157509,
-   "date": "20261101"
+   "date": "20261121"
   },
   "2017": {
-   "name": "ETN_SLO_2017_KPP_20261101.zip",
+   "name": "ETN_SLO_2017_KPP_20261121.zip",
    "size": 3406290,
-   "date": "20261101"
+   "date": "20261121"
   },
   "2018": {
-   "name": "ETN_SLO_2018_KPP_20261101.zip",
+   "name": "ETN_SLO_2018_KPP_20261121.zip",
    "size": 3257505,
-   "date": "20261101"
+   "date": "20261121"
   },
   "2019": {
-   "name": "ETN_SLO_2019_KPP_20261101.zip",
+   "name": "ETN_SLO_2019_KPP_20261121.zip",
    "size": 3722108,
-   "date": "20261101"
+   "date": "20261121"
   },
   "2020": {
-   "name": "ETN_SLO_2020_KPP_20261101.zip",
+   "name": "ETN_SLO_2020_KPP_20261121.zip",
    "size": 3376238,
-   "date": "20261101"
+   "date": "20261121"
   },
   "2021": {
-   "name": "ETN_SLO_2021_KPP_20261101.zip",
+   "name": "ETN_SLO_2021_KPP_20261121.zip",
    "size": 3770295,
-   "date": "20261101"
+   "date": "20261121"
   },
   "2022": {
-   "name": "ETN_SLO_2022_KPP_20261101.zip",
+   "name": "ETN_SLO_2022_KPP_20261121.zip",
    "size": 3811575,
-   "date": "20261101"
+   "date": "20261121"
   },
   "2023": {
-   "name": "ETN_SLO_2023_KPP_20261101.zip",
-   "size": 3238671,
-   "date": "20261101"
+   "name": "ETN_SLO_2023_KPP_20261121.zip",
+   "size": 3238674,
+   "date": "20261121"
   },
   "2024": {
-   "name": "ETN_SLO_2024_KPP_20261101.zip",
+   "name": "ETN_SLO_2024_KPP_20261121.zip",
    "size": 2602081,
-   "date": "20261101"
+   "date": "20261121"
   },
   "2025": {
-   "name": "ETN_SLO_2025_KPP_20261101.zip",
+   "name": "ETN_SLO_2025_KPP_20261121.zip",
    "size": 3182184,
-   "date": "20261101"
+   "date": "20261121"
   },
   "2026": {
-   "name": "ETN_SLO_2026_KPP_20261101.zip",
-   "size": 2407526,
-   "date": "20261101"
+   "name": "ETN_SLO_2026_KPP_20261121.zip",
+   "size": 2684492,
+   "date": "20261121"
   },
   "valuation": {
    "name": "EV_MUNICIPAL_20261031",
