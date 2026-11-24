@@ -43,7 +43,8 @@ try {
     $python = (Get-Command python).Source
     Run git pull --ff-only
 
-    Run gh release download valuation --dir data/valuation --clobber
+    # Only the table's description daily; the table itself is fetched when a build needs it.
+    Run gh release download valuation --pattern valuation.json --dir data/valuation --clobber
     $valuation = Get-Content data/valuation/valuation.json -Raw | ConvertFrom-Json
     $age = ((Get-Date) - [datetime]::ParseExact($valuation.date, 'yyyyMMdd', $null)).Days
     if ($age -gt $ValuationDays) {
@@ -60,6 +61,7 @@ try {
         return
     }
 
+    Run gh release download valuation --dir data/valuation --clobber
     Run $python -m pipeline.download
     Run $python -m pipeline.build
 

@@ -31,9 +31,9 @@ Ročni zagon: **Actions → Osveži podatke → Run workflow**.
 
 Od novembra 2026 GURS zavrača zahteve s strežnikov GitHub (HTTP 403), iz Slovenije pa deluje. Zato podatke vsak dan prenese in zgradi lastnikov računalnik:
 
-- [`scripts/refresh-local.ps1`](scripts/refresh-local.ps1) teče iz Razporejevalnika opravil v lastni kopiji repozitorija (`%LOCALAPPDATA%\kataster-cen`). Ko GURS objavi nove posle, jih prenese, zgradi podatke, jih naloži v izdajo [`site-data`](https://github.com/uvampelj/trg-nepremicnin/releases/tag/site-data), zapiše novo stanje v repozitorij in zažene `refresh.yml`. Enkrat mesečno obnovi tudi tabelo vrednosti.
+- [`scripts/refresh-local.ps1`](scripts/refresh-local.ps1) teče iz Razporejevalnika opravil v lastni kopiji repozitorija (`%USERPROFILE%\kataster-cen\repo`). Ko GURS objavi nove posle, jih prenese, zgradi podatke, jih naloži v izdajo [`site-data`](https://github.com/uvampelj/trg-nepremicnin/releases/tag/site-data), zapiše novo stanje v repozitorij in zažene `refresh.yml`. Enkrat mesečno obnovi tudi tabelo vrednosti.
 - `refresh.yml` ob nedosegljivem GURS ne gradi sam, ampak objavi novejše od podatkov v `site-data` in podatkov na strani.
-- Namestitev: `powershell -ExecutionPolicy Bypass -File scripts\install-local-refresh.ps1`. Dnevniki so v `%LOCALAPPDATA%\kataster-cen\logs`.
+- Namestitev: `powershell -ExecutionPolicy Bypass -File scripts\install-local-refresh.ps1`. Dnevniki so v `%USERPROFILE%\kataster-cen\logs`.
 
 Če računalnik več kot 21 dni ne osveži podatkov, `refresh.yml` to javi kot napako.
 

@@ -5,11 +5,13 @@
 #
 # The task runs as the current user, only while logged on, because gh and git keep their
 # credentials in that user's keyring. A missed run starts as soon as the computer is on again.
+# The clone stays out of AppData: packaged apps (such as the Claude desktop app) see a private
+# copy of AppData, so a clone made from one there would be invisible to Task Scheduler.
 # Remove with: Unregister-ScheduledTask -TaskName 'Kataster cen - osvezitev podatkov'
 param([string]$Time = '12:30')
 
 $ErrorActionPreference = 'Stop'
-$home_ = Join-Path $env:LOCALAPPDATA 'kataster-cen'
+$home_ = Join-Path $env:USERPROFILE 'kataster-cen'
 $repo = Join-Path $home_ 'repo'
 if (-not (Test-Path $repo)) {
     git clone https://github.com/uvampelj/trg-nepremicnin.git $repo
